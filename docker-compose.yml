@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  saraburi-agent-api:
+    container_name: saraburi-agent-api
+    build: .
+    ports:
+      - "18080:18080"
+    env_file:
+      - .env
+    restart: unless-stopped
