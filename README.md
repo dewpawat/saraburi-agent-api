@@ -9,6 +9,12 @@ Saraburi Agent API เป็นระบบ API กลาง (Central Agent API)
 
 ---
 
+## รับรองการทำงาน
+- ระบบ HIE
+- ระบบ Stroke Alert Saraburi
+- ระบบ RTI Saraburi
+---
+
 ## Technology Stack
 
 - Python 3.12
