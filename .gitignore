@@ -17,3 +17,6 @@ Thumbs.db
 
 #history
 .history/
+
+# tar
+saraburi-agent-api-prod.tar
