@@ -30,7 +30,6 @@ async def rti_accident(
 ):
     await api_security(request, body.hospcode)
 
-    
     hospcode = settings.HOSP_CODE
     hospcode9 = settings.HOSP_CODE9
     vstdate = body.vstdate
@@ -150,7 +149,7 @@ async def rti_accident(
     response_model=RTIAccidentPlaceResponse,
     status_code=status.HTTP_200_OK,
 )
-async def rti_accident(
+async def rti_place(
     body: RTIAccidentPlaceRequest,
     request: Request,
     headers: HeaderSecurity = Depends(get_header_security),

@@ -14,10 +14,10 @@ class RTIAccidentPlaceRequest(RTIBaseRequest):
 
 
 class RTIAccidentItem(BaseModel):
-    HOSPCODE: str = Field(..., example="10815")
-    PID: str = Field(..., example="1234567890123")
-    SEQ: str = Field(..., example="1")
-    DATETIME_SERV: str = Field(..., example="2025-01-15 08:30:00")
+    HOSPCODE: Optional[str] = Field(None, example="10815")
+    PID: Optional[str] = Field(None, example="1234567890123")
+    SEQ: Optional[str] = Field(None, example="1")
+    DATETIME_SERV: Optional[str] = Field(None, example="2025-01-15 08:30:00")
     DATETIME_AE: Optional[str] = Field(None, example="2025-01-15 09:00:00")
     AETYPE: Optional[str] = Field(None, example="1")
     AEPLACE: Optional[str] = Field(None, example="2")
@@ -51,15 +51,15 @@ class RTIAccidentItem(BaseModel):
 
 
 class RTIAccidentPlaceItem(BaseModel):
-    accident_stdcode: str = Field(None, example="C027")
-    accident_place_type_name: str = Field(None, example="ทางแยก")
-    latitude: str = Field(None, example="14.123456")
-    longitude: str = Field(None, example="100.123456")
-    tamboncode: str = Field(None, example="100101")
-    ampurcode: str = Field(None, example="1001")
-    road: str = Field(None, example="ถนนสุขุมวิท")
-    export_code: str = Field(None, example="07")
-    accident_id: str = Field(None, example="1")
+    accident_stdcode: Optional[str] = Field(None, example="C027")
+    accident_place_type_name: Optional[str] = Field(None, example="ทางแยก")
+    latitude: Optional[str] = Field(None, example="14.123456")
+    longitude: Optional[str] = Field(None, example="100.123456")
+    tamboncode: Optional[str] = Field(None, example="100101")
+    ampurcode: Optional[str] = Field(None, example="1001")
+    road: Optional[str] = Field(None, example="ถนนสุขุมวิท")
+    export_code: Optional[str] = Field(None, example="07")
+    accident_id: Optional[str] = Field(None, example="1")
 
 
 class RTIBaseResponse(BaseModel):
