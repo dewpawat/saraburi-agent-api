@@ -259,10 +259,10 @@ https://<DOMAIN>.moph.go.th/api/v1/monitor/status
 )
 ```
 
-### ขอรับ API_KEY
-> หมายเหตุ:
-> ค่า `API_KEY` สำหรับการเชื่อมต่อระบบ Saraburi Agent API  
-> ให้ประสานงานขอรับได้ที่  
+### ขอรับ API_KEY และ UPDATE Endpoint
+ได้ที่ LINE OA ดิจิทัล สสจ.สระบุรี ลงทะเบียนด้วย Provider ID
+https://line.me/R/ti/p/@580nooeh
+
 > **สำนักงานสาธารณสุขจังหวัดสระบุรี  
 > กลุ่มงานสุขภาพดิจิทัล**
 
