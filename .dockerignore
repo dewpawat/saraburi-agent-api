@@ -1,0 +1,23 @@
+# Git and history
+.git
+.gitignore
+.devcontainer
+.history
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Tarballs and archives
+*.tar
+*.tar.gz
+*.zip
+saraburi-agent-api-prod.tar
+
+# Logs and Python cache
+logs/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/

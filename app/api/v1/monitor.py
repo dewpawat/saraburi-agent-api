@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.core.database import get_db
+from app.core.config import settings
 
 import socket
 import platform
@@ -15,7 +16,10 @@ router = APIRouter()
 # ---------------------------------------------------------
 @router.get("/status", summary="Check API status")
 async def status():
-    return {"status": "running"}
+    return {
+        "status": "running",
+        "version": settings.APP_VERSION,
+    }
 
 
 # ---------------------------------------------------------
@@ -25,9 +29,17 @@ async def status():
 async def database_status(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(text("SELECT 1"))
-        return {"database": True, "error": None}
+        return {
+            "database": True,
+            "error": None,
+            "version": settings.APP_VERSION,
+        }
     except Exception as e:
-        return {"database": False, "error": str(e)}
+        return {
+            "database": False,
+            "error": str(e),
+            "version": settings.APP_VERSION,
+        }
 
 
 # ---------------------------------------------------------
@@ -40,6 +52,7 @@ async def system_info():
         "os": platform.platform(),
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "python": platform.python_version(),
+        "version": settings.APP_VERSION,
     }
 
 
@@ -71,6 +84,7 @@ async def full_check(db: AsyncSession = Depends(get_db)):
 
     return {
         "system": "running",
+        "version": settings.APP_VERSION,
         "database": db_ok,
         "database_error": db_error,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

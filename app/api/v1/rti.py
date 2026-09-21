@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from app.core.config import settings
-
 from app.api.v1.models.rti_model import (
     RTIAccidentRequest, RTIAccidentPlaceRequest,
     RTIAccidentResponse, RTIAccidentPlaceResponse,
@@ -12,6 +11,7 @@ from app.api.v1.deps.header import get_header_security
 from app.api.v1.models.security_model import HeaderSecurity
 from app.core.security import api_security
 from app.core.database import get_db
+from app.utils.formatters import safe_str, safe_date_iso, safe_get
 
 router = APIRouter()
 
@@ -34,14 +34,9 @@ async def rti_accident(
     hospcode9 = settings.HOSP_CODE9
     vstdate = body.vstdate
 
-    # 1) SET ตัวแปร – แยก execute
-    await db.execute(text("SET @hospcode := :h"), {"h": hospcode})
-    await db.execute(text("SET @hospcode9 := :h9"), {"h9": hospcode9})
-
-    # 2) SELECT ข้อมูล
     sql = text("""
         SELECT
-            @hospcode AS HOSPCODE,
+            :hospcode AS HOSPCODE,
             IF(ps.person_id IS NULL, o.hn, LPAD(ps.person_id, 6, '0')) AS PID,
             o.vn AS SEQ,
             DATE_FORMAT(CONCAT(o.vstdate, ' ', o.vsttime), '%Y%m%d%H%i%S') AS DATETIME_SERV,
@@ -65,7 +60,7 @@ async def rti_accident(
             ed.gcs_m AS COMA_MOVEMENT,
             DATE_FORMAT(CONCAT(o.vstdate, ' ', o.vsttime), '%Y%m%d%H%i%S') AS D_UPDATE,
             IF(v.cid IS NOT NULL, v.cid, p.cid) AS CID,
-            @hospcode9 AS HOSPCODE9,
+            :hospcode9 AS HOSPCODE9,
             h.stdcode_ok AS accident_stdcode,
             CONCAT(p.pname, p.fname, ' ', p.lname) AS pt_name,
             o.hn,
@@ -87,7 +82,11 @@ async def rti_accident(
         ORDER BY o.vstdate DESC;
     """)
 
-    rows = await db.execute(sql, {"vstdate": vstdate})
+    rows = await db.execute(sql, {
+        "vstdate": vstdate,
+        "hospcode": hospcode,
+        "hospcode9": hospcode9
+    })
     result = rows.mappings().all()
     if not result:
         return {
@@ -99,40 +98,40 @@ async def rti_accident(
     list_data = []
     for row in result:
         temp = {
-            "HOSPCODE": str(row["HOSPCODE"]),
-            "PID": str(row["PID"]),
-            "SEQ": str(row["SEQ"]),
-            "DATETIME_SERV": str(row["DATETIME_SERV"]),
-            "DATETIME_AE": str(row["DATETIME_AE"]) if row["DATETIME_AE"] else None,
-            "AETYPE": str(row["AETYPE"]) if row["AETYPE"] else None,
-            "AEPLACE": str(row["AEPLACE"]) if row["AEPLACE"] else None,
-            "TYPEIN_AE": str(row["TYPEIN_AE"]) if row["TYPEIN_AE"] else None,
-            "TRAFFIC": str(row["TRAFFIC"]) if row["TRAFFIC"] else None,
-            "VEHICLE": str(row["VEHICLE"]) if row["VEHICLE"] else None,
-            "ALCOHOL": str(row["ALCOHOL"]) if row["ALCOHOL"] else None,
-            "NACROTIC_DRUG": str(row["NACROTIC_DRUG"]) if row["NACROTIC_DRUG"] else None,
-            "BELT": str(row["BELT"]) if row["BELT"] else None,
-            "HELMET": str(row["HELMET"]) if row["HELMET"] else None,
-            "AIRWAY": str(row["AIRWAY"]) if row["AIRWAY"] else None
-            ,"STOPBLEED": str(row["STOPBLEED"]) if row["STOPBLEED"] else None,
-            "SPLINT": str(row["SPLINT"]) if row["SPLINT"] else None,
-            "FLUID": str(row["FLUID"]) if row["FLUID"] else None,
-            "URGENCY": str(row["URGENCY"]) if row["URGENCY"] else None,
-            "COMA_EYE": str(row["COMA_EYE"]) if row["COMA_EYE"] else None,
-            "COMA_SPEAK": str(row["COMA_SPEAK"]) if row["COMA_SPEAK"] else None,
-            "COMA_MOVEMENT": str(row["COMA_MOVEMENT"]) if row["COMA_MOVEMENT"] else None,
-            "D_UPDATE": str(row["D_UPDATE"]) if row["D_UPDATE"] else None,
-            "CID": str(row["CID"]) if row["CID"] else None,
-            "HOSPCODE9": str(row["HOSPCODE9"]) if row["HOSPCODE9"] else None,
-            "accident_stdcode": str(row["accident_stdcode"]) if row["accident_stdcode"] else None,
-            "pt_name": str(row["pt_name"]) if row["pt_name"] else None,
-            "hn": str(row["hn"]) if row["hn"] else None,
-            "an": str(row["an"]) if row["an"] else None,
-            "referhos": str(row["referhos"]) if row["referhos"] else None,
-            "dead_in": str(row["dead_in"]) if row["dead_in"] else None,
-            "dead_before": str(row["dead_before"]) if row["dead_before"] else None,
-            "place_other": str(row["place_other"]) if row["place_other"] else None,
-            "accident_place_id": str(row["accident_place_id"]) if row["accident_place_id"] else None,
+            "HOSPCODE": safe_str(safe_get(row, "HOSPCODE")) or hospcode,
+            "PID": safe_str(safe_get(row, "PID")),
+            "SEQ": safe_str(safe_get(row, "SEQ")),
+            "DATETIME_SERV": safe_str(safe_get(row, "DATETIME_SERV")),
+            "DATETIME_AE": safe_str(safe_get(row, "DATETIME_AE")),
+            "AETYPE": safe_str(safe_get(row, "AETYPE")),
+            "AEPLACE": safe_str(safe_get(row, "AEPLACE")),
+            "TYPEIN_AE": safe_str(safe_get(row, "TYPEIN_AE")),
+            "TRAFFIC": safe_str(safe_get(row, "TRAFFIC")),
+            "VEHICLE": safe_str(safe_get(row, "VEHICLE")),
+            "ALCOHOL": safe_str(safe_get(row, "ALCOHOL")),
+            "NACROTIC_DRUG": safe_str(safe_get(row, "NACROTIC_DRUG")),
+            "BELT": safe_str(safe_get(row, "BELT")),
+            "HELMET": safe_str(safe_get(row, "HELMET")),
+            "AIRWAY": safe_str(safe_get(row, "AIRWAY")),
+            "STOPBLEED": safe_str(safe_get(row, "STOPBLEED")),
+            "SPLINT": safe_str(safe_get(row, "SPLINT")),
+            "FLUID": safe_str(safe_get(row, "FLUID")),
+            "URGENCY": safe_str(safe_get(row, "URGENCY")),
+            "COMA_EYE": safe_str(safe_get(row, "COMA_EYE")),
+            "COMA_SPEAK": safe_str(safe_get(row, "COMA_SPEAK")),
+            "COMA_MOVEMENT": safe_str(safe_get(row, "COMA_MOVEMENT")),
+            "D_UPDATE": safe_str(safe_get(row, "D_UPDATE")),
+            "CID": safe_str(safe_get(row, "CID")),
+            "HOSPCODE9": safe_str(safe_get(row, "HOSPCODE9")) or hospcode9,
+            "accident_stdcode": safe_str(safe_get(row, "accident_stdcode")),
+            "pt_name": safe_str(safe_get(row, "pt_name")),
+            "hn": safe_str(safe_get(row, "hn")),
+            "an": safe_str(safe_get(row, "an")),
+            "referhos": safe_str(safe_get(row, "referhos")),
+            "dead_in": safe_str(safe_get(row, "dead_in")),
+            "dead_before": safe_str(safe_get(row, "dead_before")),
+            "place_other": safe_str(safe_get(row, "place_other")),
+            "accident_place_id": safe_str(safe_get(row, "accident_place_id")),
         }
         list_data.append(temp)
 
@@ -177,15 +176,15 @@ async def rti_place(
     list_data = []
     for row in result:
         temp = {
-            "accident_stdcode": str(row["accident_stdcode"]),
-            "accident_place_type_name": str(row["accident_place_type_name"]),
-            "latitude": str(row["latitude"]),
-            "longitude": str(row["longitude"]),
-            "tamboncode": str(row["tamboncode"]),
-            "ampurcode": str(row["ampurcode"]),
-            "road": str(row["road"]),
-            "export_code": str(row["export_code"]),
-            "accident_id": str(row["accident_id"]),
+            "accident_stdcode": safe_str(safe_get(row, "accident_stdcode")),
+            "accident_place_type_name": safe_str(safe_get(row, "accident_place_type_name")),
+            "latitude": safe_str(safe_get(row, "latitude")),
+            "longitude": safe_str(safe_get(row, "longitude")),
+            "tamboncode": safe_str(safe_get(row, "tamboncode")),
+            "ampurcode": safe_str(safe_get(row, "ampurcode")),
+            "road": safe_str(safe_get(row, "road")),
+            "export_code": safe_str(safe_get(row, "export_code")),
+            "accident_id": safe_str(safe_get(row, "accident_id")),
         }
         list_data.append(temp)
 

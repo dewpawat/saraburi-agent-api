@@ -9,7 +9,7 @@ def get_client_ip(request: Request) -> str:
         return xff.split(",")[0].strip()
 
     # 2) fallback กรณีไม่ผ่าน proxy
-    return request.client.host
+    return request.client.host if request.client else "unknown"
 
 async def api_security(request: Request, body_hospcode: str):
     x_api_key = request.headers.get("x-api-key")

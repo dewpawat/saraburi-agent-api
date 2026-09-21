@@ -12,8 +12,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Docker
+# Logs
 *.log
+logs/*
+!logs/.gitkeep
 
 #history
 .history/

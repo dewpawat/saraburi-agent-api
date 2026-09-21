@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Request, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -5,14 +6,30 @@ from sqlalchemy import text
 from app.api.v1.models.hie_model import (
     HIEPatientRequest, HIEServiceRequest, HIEVisitRequest, HIEAdmitRequest,
     HIEPatientResponse, HIEServiceResponse, HIEVisitResponse, HIEAdmitResponse,
-    HIEPatientItem, HIEServiceItem, HIEVisitItem, HIEAdmitItem,
 )
 from app.api.v1.deps.header import get_header_security
 from app.api.v1.models.security_model import HeaderSecurity
 from app.core.security import api_security
 from app.core.database import get_db
+from app.utils.formatters import safe_str, safe_date_iso, safe_float, safe_get
+
+logger = logging.getLogger("saraburi_agent.hie")
 
 router = APIRouter()
+
+async def safe_fetch_all(db: AsyncSession, sql, params: dict, context: str = ""):
+    """
+    Safely executes an optional subquery.
+    If a table/column does not exist in a hospital's database, logs a warning and returns []
+    instead of failing the entire endpoint request.
+    """
+    try:
+        rows = await db.execute(sql, params)
+        return rows.mappings().all()
+    except Exception as e:
+        logger.warning(f"Optional subquery '{context}' failed (skipped): {e}")
+        return []
+
 
 @router.post(
     "/patient",
@@ -49,20 +66,21 @@ async def hie_patient(
             "patient": None
         }
 
-    patient = {}
-    patient["cid"] = result["cid"]
-    patient["pname"] = result["pname"]
-    patient["fname"] = result["fname"]
-    patient["lname"] = result["lname"]
-    patient["hn"] = result["hn"]
-    patient["tel"] = result["hometel"]
-    patient["gender"] = result["sex"]
-    patient["birthday"] = result["birthday"].isoformat() if result["birthday"] else None
-    patient["address"] = result["address"]
-    patient["moo"] = result["moo"]
-    patient["tambon"] = result["tambon"]
-    patient["ampur"] = result["ampur"]
-    patient["changwat"] = result["changwat"]
+    patient = {
+        "cid": safe_str(safe_get(result, "cid")),
+        "pname": safe_str(safe_get(result, "pname")),
+        "fname": safe_str(safe_get(result, "fname")),
+        "lname": safe_str(safe_get(result, "lname")),
+        "hn": safe_str(safe_get(result, "hn")),
+        "tel": safe_str(safe_get(result, "hometel")),
+        "gender": safe_str(safe_get(result, "sex")),
+        "birthday": safe_date_iso(safe_get(result, "birthday")),
+        "address": safe_str(safe_get(result, "address")),
+        "moo": safe_str(safe_get(result, "moo")),
+        "tambon": safe_str(safe_get(result, "tambon")),
+        "ampur": safe_str(safe_get(result, "ampur")),
+        "changwat": safe_str(safe_get(result, "changwat")),
+    }
 
     return {
         "MessageCode": "200",
@@ -115,28 +133,25 @@ async def hie_service(
     list_data = []
     for row in result:
         temp = {
-            "cid": str(body.cid),
-            "hn": str(row["hn"]),
-            "vn": str(row["vn"]),
-            "an": row["an"] if row["an"] else None,
-            "vstdate": row["vstdate"].isoformat() if row["vstdate"] else None,
-            "vsttime": str(row["vsttime"]) if row["vsttime"] else None,
-            "code3": row["code3"] if row["code3"] else None,
-            "tname": row["tname"] if row["tname"] else None,
-            "iname": row["iname"] if row["iname"] else None,
-            "cname": row["name"] if row["name"] else None,
-            "dname": row["dname"] if row["dname"] else None,
+            "cid": safe_str(body.cid),
+            "hn": safe_str(safe_get(row, "hn")),
+            "vn": safe_str(safe_get(row, "vn")),
+            "an": safe_str(safe_get(row, "an")),
+            "vstdate": safe_date_iso(safe_get(row, "vstdate")),
+            "vsttime": safe_str(safe_get(row, "vsttime")),
+            "code3": safe_str(safe_get(row, "code3")),
+            "tname": safe_str(safe_get(row, "tname")),
+            "iname": safe_str(safe_get(row, "iname")),
+            "cname": safe_str(safe_get(row, "name")),
+            "dname": safe_str(safe_get(row, "dname")),
         }
-
         list_data.append(temp)
-
 
     return {
         "MessageCode": "200",
         "Message": "Success",
         "service": list_data
     }
-
 
 
 @router.post(
@@ -184,6 +199,7 @@ async def hie_visit(
             "visit": None
         }
     
+    # 1) Diagnosis
     sql_diag = text("""
         SELECT 
             i.code3, i.tname, i.name AS iname
@@ -192,45 +208,46 @@ async def hie_visit(
             INNER JOIN icd101 i ON ov.icd10 = i.code
         WHERE o.vn = :vn AND ov.diagtype <> '1'
     """)
-    rows_diag = await db.execute(sql_diag, {"vn": body.vn})
-    result_diag = rows_diag.mappings().all()
-
+    result_diag = await safe_fetch_all(db, sql_diag, {"vn": body.vn}, "visit_diagnosis")
     list_diag = []
-    if result_diag:
-        for row_diag in result_diag:
-            list_diag.append({
-                "code3": str(row_diag["code3"]) if str(row_diag["code3"]) else None,
-                "tname": str(row_diag["tname"]) if str(row_diag["tname"]) else None,
-                "iname": str(row_diag["iname"]) if str(row_diag["iname"]) else None,
-            })
-    else:
-        list_diag = []
+    for row_diag in result_diag:
+        list_diag.append({
+            "code3": safe_str(safe_get(row_diag, "code3")),
+            "tname": safe_str(safe_get(row_diag, "tname")),
+            "iname": safe_str(safe_get(row_diag, "iname")),
+        })
 
-
+    # 2) Drugs (supports s_drugitems or drugitems)
     sql_drug = text("""
-        SELECT b.name,b.strength , a.qty,a.sum_price,d.shortlist 
+        SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
         FROM opitemrece a 
         INNER JOIN s_drugitems b ON a.icode = b.icode 
         LEFT OUTER JOIN drugusage d ON d.drugusage = a.drugusage 
         WHERE a.vn = :vn;
     """)
-    rows_drug = await db.execute(sql_drug, {"vn": body.vn})
-    result_drug = rows_drug.mappings().all()
-    
+    result_drug = await safe_fetch_all(db, sql_drug, {"vn": body.vn}, "visit_drugs_s_drugitems")
+    if not result_drug:
+        # Fallback to standard drugitems table if s_drugitems view doesn't exist
+        sql_drug_alt = text("""
+            SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
+            FROM opitemrece a 
+            INNER JOIN drugitems b ON a.icode = b.icode 
+            LEFT OUTER JOIN drugusage d ON d.drugusage = a.drugusage 
+            WHERE a.vn = :vn;
+        """)
+        result_drug = await safe_fetch_all(db, sql_drug_alt, {"vn": body.vn}, "visit_drugs_drugitems")
+
     list_drug = []
-    if result_drug:
-        for row_drug in result_drug:
-            list_drug.append({
-                "name": str(row_drug["name"]) if str(row_drug["name"]) else None,
-                "strength": str(row_drug["strength"]) if str(row_drug["strength"]) else None,
-                "shortlist": str(row_drug["shortlist"]) if str(row_drug["shortlist"]) else None,
-                "qty": row_drug["qty"] if row_drug["qty"] else None,
-                "sum_price": row_drug["sum_price"] if row_drug["sum_price"] else None,
-            })
-    else:
-        list_drug = []
+    for row_drug in result_drug:
+        list_drug.append({
+            "name": safe_str(safe_get(row_drug, "name")),
+            "strength": safe_str(safe_get(row_drug, "strength")),
+            "shortlist": safe_str(safe_get(row_drug, "shortlist")),
+            "qty": safe_float(safe_get(row_drug, "qty")),
+            "sum_price": safe_float(safe_get(row_drug, "sum_price")),
+        })
 
-
+    # 3) Lab
     sql_lab = text("""
         SELECT l.lab_items_code, i.lab_items_name, i.lab_items_normal_value,
         if(i.lab_items_name NOT LIKE '%hiv%' AND i.lab_items_name NOT LIKE '%interpretation%',l.lab_order_result,'ปกปิด') AS lab_order_result 
@@ -240,42 +257,33 @@ async def hie_visit(
         WHERE h.vn = :vn
         ORDER BY h.order_date DESC;
     """)
-    rows_lab = await db.execute(sql_lab, {"vn": body.vn})
-    result_lab = rows_lab.mappings().all()
-    
+    result_lab = await safe_fetch_all(db, sql_lab, {"vn": body.vn}, "visit_lab")
     list_lab = []
-    if result_lab:
-        for row_lab in result_lab:
-            list_lab.append({
-                "lab_items_code": str(row_lab["lab_items_code"]) if str(row_lab["lab_items_code"]) else None,
-                "lab_items_name": str(row_lab["lab_items_name"]) if str(row_lab["lab_items_name"]) else None,
-                "lab_order_result": row_lab["lab_order_result"] if row_lab["lab_order_result"] else None,
-                "lab_items_normal_value": row_lab["lab_items_normal_value"] if row_lab["lab_items_normal_value"] else None,
-            })
-    else:
-        list_lab = []
+    for row_lab in result_lab:
+        list_lab.append({
+            "lab_items_code": safe_str(safe_get(row_lab, "lab_items_code")),
+            "lab_items_name": safe_str(safe_get(row_lab, "lab_items_name")),
+            "lab_order_result": safe_str(safe_get(row_lab, "lab_order_result")),
+            "lab_items_normal_value": safe_str(safe_get(row_lab, "lab_items_normal_value")),
+        })
 
-
+    # 4) Allergy
     sql_allergy = text("""
         SELECT oa.agent, oa.symptom, oa.report_date, oa.department
         FROM opd_allergy oa
         WHERE oa.hn = :hn
     """)
-    rows_allergy = await db.execute(sql_allergy, {"hn": body.hn})
-    result_allergy = rows_allergy.mappings().all()
-    
+    result_allergy = await safe_fetch_all(db, sql_allergy, {"hn": body.hn}, "visit_allergy")
     list_allergy = []
-    if result_allergy:
-        for row_allergy in result_allergy:
-            list_allergy.append({
-                "report_date": row_allergy["report_date"].isoformat() if row_allergy["report_date"] else None,
-                "agent": str(row_allergy["agent"]) if str(row_allergy["agent"]) else None,
-                "symptom": str(row_allergy["symptom"]) if str(row_allergy["symptom"]) else None,
-                "department": str(row_allergy["department"]) if str(row_allergy["department"]) else None,
-            })
-    else:
-        list_allergy = []
+    for row_allergy in result_allergy:
+        list_allergy.append({
+            "report_date": safe_date_iso(safe_get(row_allergy, "report_date")),
+            "agent": safe_str(safe_get(row_allergy, "agent")),
+            "symptom": safe_str(safe_get(row_allergy, "symptom")),
+            "department": safe_str(safe_get(row_allergy, "department")),
+        })
 
+    # 5) ER Procedure
     sql_er_oper = text("""
         SELECT ero.*, eoc.name AS er_oper_name, d.name AS doctor_name
         FROM er_regist_oper ero
@@ -284,21 +292,17 @@ async def hie_visit(
         WHERE ero.vn = :vn
         ORDER BY ero.rec_no ASC
     """)
-    rows_er_oper = await db.execute(sql_er_oper, {"vn": body.vn})
-    result_er_oper = rows_er_oper.mappings().all()
-    
+    result_er_oper = await safe_fetch_all(db, sql_er_oper, {"vn": body.vn}, "visit_er_procedure")
     list_er_oper = []
-    if result_er_oper:
-        for row_er_oper in result_er_oper:
-            list_er_oper.append({
-                "er_oper_code": str(row_er_oper["er_oper_code"]) if str(row_er_oper["er_oper_code"]) else None,
-                "er_oper_name": str(row_er_oper["er_oper_name"]) if str(row_er_oper["er_oper_name"]) else None,
-                "oper_qty": row_er_oper["oper_qty"] if row_er_oper["oper_qty"] else None,
-                "oper_cost": row_er_oper["oper_cost"] if row_er_oper["oper_cost"] else None,
-            })
-    else:
-        list_er_oper = []
+    for row_er_oper in result_er_oper:
+        list_er_oper.append({
+            "er_oper_code": safe_str(safe_get(row_er_oper, "er_oper_code")),
+            "er_oper_name": safe_str(safe_get(row_er_oper, "er_oper_name")),
+            "oper_qty": safe_float(safe_get(row_er_oper, "oper_qty")),
+            "oper_cost": safe_float(safe_get(row_er_oper, "oper_cost")),
+        })
 
+    # 6) OPD Procedure
     sql_opd_oper = text("""
         SELECT dot.*, eoc.name AS opd_oper_name, d.name AS doctor_name
         FROM doctor_operation dot
@@ -306,78 +310,70 @@ async def hie_visit(
         LEFT OUTER JOIN doctor d ON d.code = dot.doctor
         WHERE dot.vn = :vn;
     """)
-    rows_opd_oper = await db.execute(sql_opd_oper, {"vn": body.vn})
-    result_opd_oper = rows_opd_oper.mappings().all()
-    
+    result_opd_oper = await safe_fetch_all(db, sql_opd_oper, {"vn": body.vn}, "visit_opd_procedure")
     list_opd_oper = []
-    if result_opd_oper:
-        for row_opd_oper in result_opd_oper:
-            list_opd_oper.append({
-                "opd_oper_code": str(row_opd_oper["er_oper_code"]) if str(row_opd_oper["er_oper_code"]) else None,
-                "opd_oper_name": str(row_opd_oper["opd_oper_name"]) if str(row_opd_oper["opd_oper_name"]) else None,
-                "price": row_opd_oper["price"] if row_opd_oper["price"] else None,
-            })
-    else:
-        list_opd_oper = []
+    for row_opd_oper in result_opd_oper:
+        list_opd_oper.append({
+            "opd_oper_code": safe_str(safe_get(row_opd_oper, "er_oper_code")),
+            "opd_oper_name": safe_str(safe_get(row_opd_oper, "opd_oper_name")),
+            "price": safe_float(safe_get(row_opd_oper, "price")),
+        })
 
-    
-    visit = {}
-    visit["cid"] = str(result["cid"])
-    visit["hn"] = str(result["hn_0"])
-    visit["vn"] = str(result["vn_0"])
-    visit["an"] = result["an_0"] if str(result["an_0"]) else None
-    visit["vstdate"] =  result["vstdate_0"].isoformat() if result["vstdate_0"] else None
-    visit["vsttime"] =  str(result["vsttime_0"]) if result["vsttime_0"] else None
-    visit["code3"] = str(result["code3"])
-    visit["tname"] = str(result["tname"])
-    visit["iname"] = str(result["iname"])
-    visit["cname"] = str(result["name"])
-    visit["dname"] = str(result["dname"])
-    visit["pttypeno"] = str(result["pttypeno"])
-    visit["birthday"] =  result["birthday"].isoformat() if result["birthday"] else None
-    visit["so"] = result["so"] if result["so"] else None
-    visit["pnname"] = result["pnname"] if result["pnname"] else None
-    visit["novstist"] = result["novstist"] if result["novstist"] else None
-    visit["novstost"] = result["novstost"] if result["novstost"] else None
-    visit["bw"] = result["bw"] if result["bw"] else None
-    visit["height"] = result["height"] if result["height"] else None
-    visit["temperature"] = result["temperature"] if result["temperature"] else None
-    visit["bps"] = result["bps"] if result["bps"] else None
-    visit["bpd"] = result["bpd"] if result["bpd"] else None
-    visit["rr"] = result["rr"] if result["rr"] else None
-    visit["pulse"] = result["pulse"] if result["pulse"] else None
-    visit["bmi"] = result["bmi"] if result["bmi"] else None
-    visit["fbs"] = result["fbs"] if result["fbs"] else None
-    visit["cc"] = result["cc"] if result["cc"] else None
-    visit["hpi"] = result["hpi"] if result["hpi"] else None
-    visit["fh"] = result["fh"] if result["fh"] else None
-    visit["pmh"] = result["pmh"] if result["pmh"] else None
-    visit["pe"] = result["pe"] if result["pe"] else None
-    visit["pe_ga"] = result["pe_ga"] if result["pe_ga"] else None
-    visit["pe_ga_text"] = result["pe_ga_text"] if result["pe_ga_text"] else None
-    visit["pe_heent"] = result["pe_heent"] if result["pe_heent"] else None
-    visit["pe_heent_text"] = result["pe_heent_text"] if result["pe_heent_text"] else None
-    visit["pe_heart"] = result["pe_heart"] if result["pe_heart"] else None
-    visit["pe_heart_text"] = result["pe_heart_text"] if result["pe_heart_text"] else None
-    visit["pe_lung"] = result["pe_lung"] if result["pe_lung"] else None
-    visit["pe_lung_text"] = result["pe_lung_text"] if result["pe_lung_text"] else None
-    visit["pe_ab"] = result["pe_ab"] if result["pe_ab"] else None
-    visit["pe_ab_text"] = result["pe_ab_text"] if result["pe_ab_text"] else None
-    visit["diagnosis"] = list_diag
-    visit["drug"] = list_drug
-    visit["lab"] = list_lab
-    visit["allergy"] = list_allergy
-    visit["procedure_er"] = list_er_oper
-    visit["procedure_opd"] = list_opd_oper
-
+    visit = {
+        "cid": safe_str(safe_get(result, "cid")),
+        "hn": safe_str(safe_get(result, "hn_0")),
+        "vn": safe_str(safe_get(result, "vn_0")),
+        "an": safe_str(safe_get(result, "an_0")),
+        "vstdate": safe_date_iso(safe_get(result, "vstdate_0")),
+        "vsttime": safe_str(safe_get(result, "vsttime_0")),
+        "code3": safe_str(safe_get(result, "code3")),
+        "tname": safe_str(safe_get(result, "tname")),
+        "iname": safe_str(safe_get(result, "iname")),
+        "cname": safe_str(safe_get(result, "name")),
+        "dname": safe_str(safe_get(result, "dname")),
+        "pttypeno": safe_str(safe_get(result, "pttypeno")),
+        "birthday": safe_date_iso(safe_get(result, "birthday")),
+        "so": safe_str(safe_get(result, "so")),
+        "pnname": safe_str(safe_get(result, "pnname")),
+        "novstist": safe_str(safe_get(result, "novstist")),
+        "novstost": safe_str(safe_get(result, "novstost")),
+        "bw": safe_str(safe_get(result, "bw")),
+        "height": safe_str(safe_get(result, "height")),
+        "temperature": safe_str(safe_get(result, "temperature")),
+        "bps": safe_str(safe_get(result, "bps")),
+        "bpd": safe_str(safe_get(result, "bpd")),
+        "rr": safe_str(safe_get(result, "rr")),
+        "pulse": safe_str(safe_get(result, "pulse")),
+        "bmi": safe_str(safe_get(result, "bmi")),
+        "fbs": safe_str(safe_get(result, "fbs")),
+        "cc": safe_str(safe_get(result, "cc")),
+        "hpi": safe_str(safe_get(result, "hpi")),
+        "fh": safe_str(safe_get(result, "fh")),
+        "pmh": safe_str(safe_get(result, "pmh")),
+        "pe": safe_str(safe_get(result, "pe")),
+        "pe_ga": safe_str(safe_get(result, "pe_ga")),
+        "pe_ga_text": safe_str(safe_get(result, "pe_ga_text")),
+        "pe_heent": safe_str(safe_get(result, "pe_heent")),
+        "pe_heent_text": safe_str(safe_get(result, "pe_heent_text")),
+        "pe_heart": safe_str(safe_get(result, "pe_heart")),
+        "pe_heart_text": safe_str(safe_get(result, "pe_heart_text")),
+        "pe_lung": safe_str(safe_get(result, "pe_lung")),
+        "pe_lung_text": safe_str(safe_get(result, "pe_lung_text")),
+        "pe_ab": safe_str(safe_get(result, "pe_ab")),
+        "pe_ab_text": safe_str(safe_get(result, "pe_ab_text")),
+        "diagnosis": list_diag,
+        "drug": list_drug,
+        "lab": list_lab,
+        "allergy": list_allergy,
+        "procedure_er": list_er_oper,
+        "procedure_opd": list_opd_oper,
+    }
 
     return {
         "MessageCode": "200",
         "Message": "Success",
         "visit": visit
     }
-
-
 
 
 @router.post(
@@ -425,6 +421,7 @@ async def hie_admit(
             "admit": None
         }
     
+    # 1) Diagnosis
     sql_diag = text("""
         SELECT o.vn ,o.vstdate ,o.vsttime ,i.tname , pt.name ,o.pttypeno , i.name AS iname ,i.code3 , v.paid_money , d.name AS dname 
         FROM ovst o 
@@ -436,47 +433,47 @@ async def hie_admit(
         WHERE o.vn = :vn AND ov.diagtype <> '1' 
         ORDER BY o.vstdate ,o.vsttime;
     """)
-    rows_diag = await db.execute(sql_diag, {"vn": body.vn})
-    result_diag = rows_diag.mappings().all()
-
+    result_diag = await safe_fetch_all(db, sql_diag, {"vn": body.vn}, "admit_diagnosis")
     list_diag = []
-    if result_diag:
-        for row_diag in result_diag:
-            list_diag.append({
-                "code3": str(row_diag["code3"]) if str(row_diag["code3"]) else None,
-                "tname": str(row_diag["tname"]) if str(row_diag["tname"]) else None,
-                "iname": str(row_diag["iname"]) if str(row_diag["iname"]) else None,
-            })
-    else:
-        list_diag = []
+    for row_diag in result_diag:
+        list_diag.append({
+            "code3": safe_str(safe_get(row_diag, "code3")),
+            "tname": safe_str(safe_get(row_diag, "tname")),
+            "iname": safe_str(safe_get(row_diag, "iname")),
+        })
 
-
+    # 2) Drugs (supports s_drugitems or drugitems)
     sql_drug = text("""
-        SELECT b.name,b.strength , a.qty,a.sum_price,d.shortlist 
+        SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
         FROM opitemrece a 
         INNER JOIN s_drugitems b ON a.icode = b.icode 
         LEFT OUTER JOIN drugusage d ON d.drugusage = a.drugusage 
         WHERE a.vn = :vn OR a.an = :an;
     """)
-    rows_drug = await db.execute(sql_drug, {"vn": body.vn, "an": body.an})
-    result_drug = rows_drug.mappings().all()
-    
+    result_drug = await safe_fetch_all(db, sql_drug, {"vn": body.vn, "an": body.an}, "admit_drugs_s_drugitems")
+    if not result_drug:
+        sql_drug_alt = text("""
+            SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
+            FROM opitemrece a 
+            INNER JOIN drugitems b ON a.icode = b.icode 
+            LEFT OUTER JOIN drugusage d ON d.drugusage = a.drugusage 
+            WHERE a.vn = :vn OR a.an = :an;
+        """)
+        result_drug = await safe_fetch_all(db, sql_drug_alt, {"vn": body.vn, "an": body.an}, "admit_drugs_drugitems")
+
     list_drug = []
-    if result_drug:
-        for row_drug in result_drug:
-            list_drug.append({
-                "name": str(row_drug["name"]) if str(row_drug["name"]) else None,
-                "strength": str(row_drug["strength"]) if str(row_drug["strength"]) else None,
-                "shortlist": str(row_drug["shortlist"]) if str(row_drug["shortlist"]) else None,
-                "qty": row_drug["qty"] if row_drug["qty"] else None,
-                "sum_price": row_drug["sum_price"] if row_drug["sum_price"] else None,
-            })
-    else:
-        list_drug = []
+    for row_drug in result_drug:
+        list_drug.append({
+            "name": safe_str(safe_get(row_drug, "name")),
+            "strength": safe_str(safe_get(row_drug, "strength")),
+            "shortlist": safe_str(safe_get(row_drug, "shortlist")),
+            "qty": safe_float(safe_get(row_drug, "qty")),
+            "sum_price": safe_float(safe_get(row_drug, "sum_price")),
+        })
 
-
+    # 3) Lab
     sql_lab = text("""
-        SELECT l.lab_items_code,i.lab_items_name,i.lab_items_normal_value,
+        SELECT l.lab_items_code, i.lab_items_name, i.lab_items_normal_value,
         if(i.lab_items_name NOT LIKE '%hiv%' AND i.lab_items_name NOT LIKE '%interpretation%',l.lab_order_result,'ปกปิด') AS lab_order_result 
         FROM lab_head h 
         INNER JOIN lab_order l ON h.lab_order_number = l.lab_order_number
@@ -484,42 +481,33 @@ async def hie_admit(
         WHERE h.vn = :vn
         ORDER BY h.order_date DESC;
     """)
-    rows_lab = await db.execute(sql_lab, {"vn": body.vn})
-    result_lab = rows_lab.mappings().all()
-    
+    result_lab = await safe_fetch_all(db, sql_lab, {"vn": body.vn}, "admit_lab")
     list_lab = []
-    if result_lab:
-        for row_lab in result_lab:
-            list_lab.append({
-                "lab_items_code": str(row_lab["lab_items_code"]) if str(row_lab["lab_items_code"]) else None,
-                "lab_items_name": str(row_lab["lab_items_name"]) if str(row_lab["lab_items_name"]) else None,
-                "lab_order_result": row_lab["lab_order_result"] if row_lab["lab_order_result"] else None,
-                "lab_items_normal_value": row_lab["lab_items_normal_value"] if row_lab["lab_items_normal_value"] else None,
-            })
-    else:
-        list_lab = []
+    for row_lab in result_lab:
+        list_lab.append({
+            "lab_items_code": safe_str(safe_get(row_lab, "lab_items_code")),
+            "lab_items_name": safe_str(safe_get(row_lab, "lab_items_name")),
+            "lab_order_result": safe_str(safe_get(row_lab, "lab_order_result")),
+            "lab_items_normal_value": safe_str(safe_get(row_lab, "lab_items_normal_value")),
+        })
 
-
+    # 4) Allergy
     sql_allergy = text("""
         SELECT oa.agent, oa.symptom, oa.report_date, oa.department
         FROM opd_allergy oa
         WHERE oa.hn = :hn
     """)
-    rows_allergy = await db.execute(sql_allergy, {"hn": body.hn})
-    result_allergy = rows_allergy.mappings().all()
-    
+    result_allergy = await safe_fetch_all(db, sql_allergy, {"hn": body.hn}, "admit_allergy")
     list_allergy = []
-    if result_allergy:
-        for row_allergy in result_allergy:
-            list_allergy.append({
-                "report_date": row_allergy["report_date"].isoformat() if row_allergy["report_date"] else None,
-                "agent": str(row_allergy["agent"]) if str(row_allergy["agent"]) else None,
-                "symptom": str(row_allergy["symptom"]) if str(row_allergy["symptom"]) else None,
-                "department": str(row_allergy["department"]) if str(row_allergy["department"]) else None,
-            })
-    else:
-        list_allergy = []
+    for row_allergy in result_allergy:
+        list_allergy.append({
+            "report_date": safe_date_iso(safe_get(row_allergy, "report_date")),
+            "agent": safe_str(safe_get(row_allergy, "agent")),
+            "symptom": safe_str(safe_get(row_allergy, "symptom")),
+            "department": safe_str(safe_get(row_allergy, "department")),
+        })
 
+    # 5) ER Procedure
     sql_er_oper = text("""
         SELECT ero.*, eoc.name AS er_oper_name, d.name AS doctor_name
         FROM er_regist_oper ero
@@ -528,21 +516,17 @@ async def hie_admit(
         WHERE ero.vn = :vn
         ORDER BY ero.rec_no ASC
     """)
-    rows_er_oper = await db.execute(sql_er_oper, {"vn": body.vn})
-    result_er_oper = rows_er_oper.mappings().all()
-    
+    result_er_oper = await safe_fetch_all(db, sql_er_oper, {"vn": body.vn}, "admit_er_procedure")
     list_er_oper = []
-    if result_er_oper:
-        for row_er_oper in result_er_oper:
-            list_er_oper.append({
-                "er_oper_code": str(row_er_oper["er_oper_code"]) if str(row_er_oper["er_oper_code"]) else None,
-                "er_oper_name": str(row_er_oper["er_oper_name"]) if str(row_er_oper["er_oper_name"]) else None,
-                "oper_qty": row_er_oper["oper_qty"] if row_er_oper["oper_qty"] else None,
-                "oper_cost": row_er_oper["oper_cost"] if row_er_oper["oper_cost"] else None,
-            })
-    else:
-        list_er_oper = []
+    for row_er_oper in result_er_oper:
+        list_er_oper.append({
+            "er_oper_code": safe_str(safe_get(row_er_oper, "er_oper_code")),
+            "er_oper_name": safe_str(safe_get(row_er_oper, "er_oper_name")),
+            "oper_qty": safe_float(safe_get(row_er_oper, "oper_qty")),
+            "oper_cost": safe_float(safe_get(row_er_oper, "oper_cost")),
+        })
 
+    # 6) OPD Procedure
     sql_opd_oper = text("""
         SELECT dot.*, eoc.name AS opd_oper_name, d.name AS doctor_name
         FROM doctor_operation dot
@@ -550,21 +534,16 @@ async def hie_admit(
         LEFT OUTER JOIN doctor d ON d.code = dot.doctor
         WHERE dot.vn = :vn;
     """)
-    rows_opd_oper = await db.execute(sql_opd_oper, {"vn": body.vn})
-    result_opd_oper = rows_opd_oper.mappings().all()
-    
+    result_opd_oper = await safe_fetch_all(db, sql_opd_oper, {"vn": body.vn}, "admit_opd_procedure")
     list_opd_oper = []
-    if result_opd_oper:
-        for row_opd_oper in result_opd_oper:
-            list_opd_oper.append({
-                "opd_oper_code": str(row_opd_oper["er_oper_code"]) if str(row_opd_oper["er_oper_code"]) else None,
-                "opd_oper_name": str(row_opd_oper["opd_oper_name"]) if str(row_opd_oper["opd_oper_name"]) else None,
-                "price": row_opd_oper["price"] if row_opd_oper["price"] else None,
-            })
-    else:
-        list_opd_oper = []
+    for row_opd_oper in result_opd_oper:
+        list_opd_oper.append({
+            "opd_oper_code": safe_str(safe_get(row_opd_oper, "er_oper_code")),
+            "opd_oper_name": safe_str(safe_get(row_opd_oper, "opd_oper_name")),
+            "price": safe_float(safe_get(row_opd_oper, "price")),
+        })
 
-
+    # 7) AN
     sql_an = text("""
         SELECT *, d1.name AS dname1, d2.name AS dname2, pt.name AS pname, w.name AS wname, ip.name AS ipname, dc.name AS dcname, ds.name AS dsname  
         FROM an_stat a 
@@ -579,32 +558,26 @@ async def hie_admit(
         LEFT JOIN dchstts ds ON i.dchstts = ds.dchstts  
         WHERE a.vn = :vn; 
     """)
-    rows_an = await db.execute(sql_an, {"vn": body.vn})
-    result_an = rows_an.mappings().all()
-    
+    result_an = await safe_fetch_all(db, sql_an, {"vn": body.vn}, "admit_an_stat")
     list_an = []
-    if result_an:
-        for row_an in result_an:
-            list_an.append({
-                "an": str(row_an["an"]) if str(row_an["an"]) else None,
-                "regdate": row_an["regdate"].isoformat() if row_an["regdate"] else None,
-                "dchtime": str(row_an["dchtime"]) if str(row_an["dchtime"]) else None,
-                "wname": str(row_an["wname"]) if str(row_an["wname"]) else None,
-                "admday": str(row_an["admday"]) if str(row_an["admday"]) else None,
-                "dname1": str(row_an["dname1"]) if str(row_an["dname1"]) else None,
-                "pname": str(row_an["pname"]) if str(row_an["pname"]) else None,
-                "ipname": str(row_an["ipname"]) if str(row_an["ipname"]) else None,
-                "prediag": str(row_an["prediag"]) if str(row_an["prediag"]) else None,
-                "dchdate": row_an["dchdate"].isoformat() if row_an["dchdate"] else None,
-                "dchtime": str(row_an["dchtime"]) if str(row_an["dchtime"]) else None,
-                "dname2": str(row_an["dname2"]) if str(row_an["dname2"]) else None,
-                "dcname": str(row_an["dcname"]) if str(row_an["dcname"]) else None,
-                "dsname": str(row_an["dsname"]) if str(row_an["dsname"]) else None,
-            })
-    else:
-        list_an = []
+    for row_an in result_an:
+        list_an.append({
+            "an": safe_str(safe_get(row_an, "an")),
+            "regdate": safe_date_iso(safe_get(row_an, "regdate")),
+            "dchtime": safe_str(safe_get(row_an, "dchtime")),
+            "wname": safe_str(safe_get(row_an, "wname")),
+            "admday": safe_str(safe_get(row_an, "admday")),
+            "dname1": safe_str(safe_get(row_an, "dname1")),
+            "pname": safe_str(safe_get(row_an, "pname")),
+            "ipname": safe_str(safe_get(row_an, "ipname")),
+            "prediag": safe_str(safe_get(row_an, "prediag")),
+            "dchdate": safe_date_iso(safe_get(row_an, "dchdate")),
+            "dname2": safe_str(safe_get(row_an, "dname2")),
+            "dcname": safe_str(safe_get(row_an, "dcname")),
+            "dsname": safe_str(safe_get(row_an, "dsname")),
+        })
 
-
+    # 8) IPT Procedure
     sql_ipt_oper = text("""
         SELECT ino.*, ioc.name AS oper_name, d.name AS doctor_name
         FROM ipt_nurse_oper ino
@@ -613,72 +586,67 @@ async def hie_admit(
         WHERE ino.an = :an
         ORDER BY ino.ref_date ASC;
     """)
-    rows_ipt_oper = await db.execute(sql_ipt_oper, {"an": body.an})
-    result_ipt_oper = rows_ipt_oper.mappings().all()
-    
+    result_ipt_oper = await safe_fetch_all(db, sql_ipt_oper, {"an": body.an}, "admit_ipt_procedure")
     list_ipt_oper = []
-    if result_ipt_oper:
-        for row_ipt_oper in result_ipt_oper:
-            list_ipt_oper.append({
-                "ref_date": str(row_ipt_oper["ref_date"]) if str(row_ipt_oper["ref_date"]) else None,
-                "oper_name": str(row_ipt_oper["oper_name"]) if str(row_ipt_oper["oper_name"]) else None,
-                "oper_qty": row_ipt_oper["oper_qty"] if row_ipt_oper["oper_qty"] else None,
-                "total_price": row_ipt_oper["total_price"] if row_ipt_oper["total_price"] else None,
-            })
-    else:
-        list_ipt_oper = []
+    for row_ipt_oper in result_ipt_oper:
+        list_ipt_oper.append({
+            "ref_date": safe_date_iso(safe_get(row_ipt_oper, "ref_date")),
+            "oper_name": safe_str(safe_get(row_ipt_oper, "oper_name")),
+            "oper_qty": safe_float(safe_get(row_ipt_oper, "oper_qty")),
+            "total_price": safe_float(safe_get(row_ipt_oper, "total_price")),
+        })
 
-    
-    admit = {}
-    admit["cid"] = str(result["cid"])
-    admit["hn"] = str(result["hn_0"])
-    admit["vn"] = str(result["vn_0"])
-    admit["an"] = result["an_0"] if str(result["an_0"]) else None
-    admit["vstdate"] =  result["vstdate_0"].isoformat() if result["vstdate_0"] else None
-    admit["vsttime"] =  str(result["vsttime_0"]) if result["vsttime_0"] else None
-    admit["code3"] = str(result["code3"])
-    admit["tname"] = str(result["tname"])
-    admit["iname"] = str(result["iname"])
-    admit["cname"] = str(result["name"])
-    admit["dname"] = str(result["dname"])
-    admit["pttypeno"] = str(result["pttypeno"])
-    admit["birthday"] =  result["birthday"].isoformat() if result["birthday"] else None
-    admit["so"] = result["so"] if result["so"] else None
-    admit["pnname"] = result["pnname"] if result["pnname"] else None
-    admit["novstist"] = result["novstist"] if result["novstist"] else None
-    admit["novstost"] = result["novstost"] if result["novstost"] else None
-    admit["bw"] = result["bw"] if result["bw"] else None
-    admit["height"] = result["height"] if result["height"] else None
-    admit["temperature"] = result["temperature"] if result["temperature"] else None
-    admit["bps"] = result["bps"] if result["bps"] else None
-    admit["bpd"] = result["bpd"] if result["bpd"] else None
-    admit["rr"] = result["rr"] if result["rr"] else None
-    admit["pulse"] = result["pulse"] if result["pulse"] else None
-    admit["bmi"] = result["bmi"] if result["bmi"] else None
-    admit["fbs"] = result["fbs"] if result["fbs"] else None
-    admit["cc"] = result["cc"] if result["cc"] else None
-    admit["hpi"] = result["hpi"] if result["hpi"] else None
-    admit["fh"] = result["fh"] if result["fh"] else None
-    admit["pmh"] = result["pmh"] if result["pmh"] else None
-    admit["pe"] = result["pe"] if result["pe"] else None
-    admit["pe_ga"] = result["pe_ga"] if result["pe_ga"] else None
-    admit["pe_ga_text"] = result["pe_ga_text"] if result["pe_ga_text"] else None
-    admit["pe_heent"] = result["pe_heent"] if result["pe_heent"] else None
-    admit["pe_heent_text"] = result["pe_heent_text"] if result["pe_heent_text"] else None
-    admit["pe_heart"] = result["pe_heart"] if result["pe_heart"] else None
-    admit["pe_heart_text"] = result["pe_heart_text"] if result["pe_heart_text"] else None
-    admit["pe_lung"] = result["pe_lung"] if result["pe_lung"] else None
-    admit["pe_lung_text"] = result["pe_lung_text"] if result["pe_lung_text"] else None
-    admit["pe_ab"] = result["pe_ab"] if result["pe_ab"] else None
-    admit["pe_ab_text"] = result["pe_ab_text"] if result["pe_ab_text"] else None
-    admit["diagnosis"] = list_diag
-    admit["drug"] = list_drug
-    admit["lab"] = list_lab
-    admit["allergy"] = list_allergy
-    admit["procedure_er"] = list_er_oper
-    admit["procedure_opd"] = list_opd_oper
-    admit["list_an"] = list_an
-    admit["procedure_an"] = list_ipt_oper
+    admit = {
+        "cid": safe_str(safe_get(result, "cid")),
+        "hn": safe_str(safe_get(result, "hn_0")),
+        "vn": safe_str(safe_get(result, "vn_0")),
+        "an": safe_str(safe_get(result, "an_0")),
+        "vstdate": safe_date_iso(safe_get(result, "vstdate_0")),
+        "vsttime": safe_str(safe_get(result, "vsttime_0")),
+        "code3": safe_str(safe_get(result, "code3")),
+        "tname": safe_str(safe_get(result, "tname")),
+        "iname": safe_str(safe_get(result, "iname")),
+        "cname": safe_str(safe_get(result, "name")),
+        "dname": safe_str(safe_get(result, "dname")),
+        "pttypeno": safe_str(safe_get(result, "pttypeno")),
+        "birthday": safe_date_iso(safe_get(result, "birthday")),
+        "so": safe_str(safe_get(result, "so")),
+        "pnname": safe_str(safe_get(result, "pnname")),
+        "novstist": safe_str(safe_get(result, "novstist")),
+        "novstost": safe_str(safe_get(result, "novstost")),
+        "bw": safe_str(safe_get(result, "bw")),
+        "height": safe_str(safe_get(result, "height")),
+        "temperature": safe_str(safe_get(result, "temperature")),
+        "bps": safe_str(safe_get(result, "bps")),
+        "bpd": safe_str(safe_get(result, "bpd")),
+        "rr": safe_str(safe_get(result, "rr")),
+        "pulse": safe_str(safe_get(result, "pulse")),
+        "bmi": safe_str(safe_get(result, "bmi")),
+        "fbs": safe_str(safe_get(result, "fbs")),
+        "cc": safe_str(safe_get(result, "cc")),
+        "hpi": safe_str(safe_get(result, "hpi")),
+        "fh": safe_str(safe_get(result, "fh")),
+        "pmh": safe_str(safe_get(result, "pmh")),
+        "pe": safe_str(safe_get(result, "pe")),
+        "pe_ga": safe_str(safe_get(result, "pe_ga")),
+        "pe_ga_text": safe_str(safe_get(result, "pe_ga_text")),
+        "pe_heent": safe_str(safe_get(result, "pe_heent")),
+        "pe_heent_text": safe_str(safe_get(result, "pe_heent_text")),
+        "pe_heart": safe_str(safe_get(result, "pe_heart")),
+        "pe_heart_text": safe_str(safe_get(result, "pe_heart_text")),
+        "pe_lung": safe_str(safe_get(result, "pe_lung")),
+        "pe_lung_text": safe_str(safe_get(result, "pe_lung_text")),
+        "pe_ab": safe_str(safe_get(result, "pe_ab")),
+        "pe_ab_text": safe_str(safe_get(result, "pe_ab_text")),
+        "diagnosis": list_diag,
+        "drug": list_drug,
+        "lab": list_lab,
+        "allergy": list_allergy,
+        "procedure_er": list_er_oper,
+        "procedure_opd": list_opd_oper,
+        "list_an": list_an,
+        "procedure_an": list_ipt_oper,
+    }
 
     return {
         "MessageCode": "200",

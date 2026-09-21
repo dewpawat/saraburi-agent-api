@@ -38,7 +38,7 @@ class StrokeIPDItem(BaseModel):
 class StrokeIPDResponse(BaseModel):
     MessageCode: str
     Message: str
-    result: list[StrokeIPDItem]
+    result: Optional[list[StrokeIPDItem]] = []
 
 class StrokeOPDRequest(BaseModel):
     hospcode: str = Field(..., example="10815", description="รหัสสถานพยาบาล 5 หลัก")
@@ -76,4 +76,4 @@ class StrokeOPDItem(BaseModel):
 class StrokeOPDResponse(BaseModel):
     MessageCode: str
     Message: str
-    result: list[StrokeOPDItem]
+    result: Optional[list[StrokeOPDItem]] = []

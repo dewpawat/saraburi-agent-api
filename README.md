@@ -158,7 +158,8 @@ http://<SERVER_IP>:18080/api/v1/monitor/status
 Response ตัวอย่าง:
 ```json
 {
-  "status": "running"
+  "status": "running",
+  "version": "1.1.0"
 }
 ```
 

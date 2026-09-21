@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY .env.example ./
 
+# สร้างไดเรกทอรี logs พร้อมกำหนดสิทธิ์ 777 ป้องกันปัญหา Permission ใน Docker
+RUN mkdir -p /app/logs && chmod -R 777 /app/logs
+
 EXPOSE 18080
 
 # รัน FastAPI ด้วย uvicorn (production simple)

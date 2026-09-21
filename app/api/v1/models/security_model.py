@@ -1,6 +1,6 @@
-# app/api/v1/models/security_model.py
+from typing import Optional
 from pydantic import BaseModel, Field
 
 class HeaderSecurity(BaseModel):
-    x_api_key: str = Field(..., description="API key", example="my-secret-api-key")
-    x_hospcode: str = Field(..., description="Hospcode", example="10815")
+    x_api_key: Optional[str] = Field(None, description="API key", example="my-secret-api-key")
+    x_hospcode: Optional[str] = Field(None, description="Hospcode", example="10815")

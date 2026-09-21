@@ -68,7 +68,7 @@ class RTIBaseResponse(BaseModel):
 
     
 class RTIAccidentResponse(RTIBaseResponse):
-    result: list[RTIAccidentItem] = None
+    result: Optional[list[RTIAccidentItem]] = []
 
 class RTIAccidentPlaceResponse(RTIBaseResponse):
-    result: list[RTIAccidentPlaceItem] = None
+    result: Optional[list[RTIAccidentPlaceItem]] = []

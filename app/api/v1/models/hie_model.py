@@ -82,7 +82,7 @@ class HIEProcedureOpdItem(BaseModel):
     total_price: Optional[float] = None
 
 class HIEPatientItem(BaseModel):
-    cid: str = Field(..., example="1103700999999", description="เลขบัตรประชาชน (Citizen ID)")
+    cid: Optional[str] = Field(None, example="1103700999999", description="เลขบัตรประชาชน (Citizen ID)")
     pname: Optional[str] = Field(None, example="น.ส.", description="คำนำหน้าชื่อ")
     fname: Optional[str] = None
     lname: Optional[str] = None
@@ -97,7 +97,7 @@ class HIEPatientItem(BaseModel):
     changwat: Optional[str] = None
     
 class HIEServiceItem(BaseModel):
-    cid: str
+    cid: Optional[str] = None
     hn: Optional[str] = None
     vn: Optional[str] = None
     an: Optional[str] = None
