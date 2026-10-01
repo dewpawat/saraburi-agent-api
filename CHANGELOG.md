@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-10-01
+
+### Fixed
+- **SQLAlchemy Asyncio & Greenlet Dependency**:
+  - Updated `requirements.txt` from `sqlalchemy` to `sqlalchemy[asyncio]`.
+  - Resolves `ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed` encountered during fresh `docker compose up -d --build` installs.
+  - Ensures full forward-compatibility with SQLAlchemy 2.1+, which separated `greenlet` from core dependencies into the `[asyncio]` extra target.
+
 ## [1.1.0] - 2026-09-21
 
 ### Added
