@@ -4,7 +4,7 @@ class Settings(BaseSettings):
     APP_NAME: str
     APP_ENV: str
     APP_PORT: int
-    APP_VERSION: str = "1.1.1"
+    APP_VERSION: str = "1.1.2"
 
     API_KEY: str
     API_ALLOWED_IP1: str

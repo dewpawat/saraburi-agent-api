@@ -19,8 +19,8 @@ Saraburi Agent API เป็นระบบ API กลาง (Central Agent API)
 
 - Python 3.12
 - FastAPI
-- Uvicorn (ASGI Server)
-- Docker / Docker Compose
+- Uvicorn (ASGI Server - Dual Workers)
+- Docker / Docker Compose (Host Network Mode)
 - MySQL / MariaDB
 - REST API (JSON)
 
@@ -119,7 +119,10 @@ HOSP_NAME=Test Hospital
 ```bash
 docker compose up -d --build
 ```
-แก้ไขไฟล์ .env ให้ตรงกับสภาพแวดล้อมของหน่วยงาน
+
+> **หมายเหตุสถาปัตยกรรม (Network & Concurrency v1.1.2+):**  
+> 1. **Network Mode:** ปรับใช้ `network_mode: "host"` เป็นมาตรฐาน เพื่อให้เชื่อมต่อกับฐานข้อมูล HOSxP/MySQL บนเครื่องแม่ได้โดยตรง ไม่ติดปัญหา Reverse DNS Lookup Timeout (ค้าง 2 นาที) บนเครื่องที่ไม่ได้ตั้ง `skip-name-resolve`  
+> 2. **Dual-Worker:** รัน Uvicorn ด้วย `--workers 2` เพื่อแยกเลนคำขอฉุกเฉิน (Stroke Alert, RTI Alert) ออกจากงานดึงข้อมูลรายงานทั่วไป ไม่ให้เกิดคิวบล็อกกัน
 
 ตรวจสอบว่า container ของระบบทำงานอยู่หรือไม่
 ```bash
@@ -128,15 +131,9 @@ docker ps
 ผลลัพธ์ที่ควรเห็น
 จะต้องมี container ของระบบปรากฏอยู่ในรายการ เช่น
 ```text
-saraburi_agent_api-api   saraburi-agent-api   0.0.0.0:18080->18080/tcp
+saraburi-agent-api   saraburi-agent-api:prod   Up ...
 ```
-> โดยมีความหมายดังนี้:
-> saraburi_agent_api-api
-> ชื่อ container ของระบบ
-> saraburi-agent-api
-> ชื่อ image ที่ถูก build ขึ้นมา
-> 0.0.0.0:18080->18080/tcp
-> ระบบเปิดให้เรียกใช้งานผ่าน port 18080 ของเครื่อง serve
+> ระบบเปิดให้เรียกใช้งานผ่าน port 18080 ของเครื่อง server โดยตรง
 
 ---
 
@@ -159,7 +156,7 @@ Response ตัวอย่าง:
 ```json
 {
   "status": "running",
-  "version": "1.1.0"
+  "version": "1.1.2"
 }
 ```
 
@@ -257,7 +254,6 @@ http://<SERVER_IP>/api/v1/monitor/status
 หรือ 
 ```bash
 https://<DOMAIN>.moph.go.th/api/v1/monitor/status
-)
 ```
 
 ### ขอรับ API_KEY และ UPDATE Endpoint
@@ -266,4 +262,3 @@ https://line.me/R/ti/p/@580nooeh
 
 > **สำนักงานสาธารณสุขจังหวัดสระบุรี  
 > กลุ่มงานสุขภาพดิจิทัล**
-

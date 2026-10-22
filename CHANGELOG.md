@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-10-22
+
+### Changed
+- **Host Network Mode (`network_mode: "host"`)**:
+  - Switched default network from Docker Bridge to Host Network mode in `docker-compose.yml`.
+  - Removed redundant `ports: - "18080:18080"` binding since host mode directly uses the host's network interfaces.
+  - Resolves the 2-minute MySQL/MariaDB Reverse DNS Lookup timeout encountered on hospital HOSxP servers that lack `skip-name-resolve`.
+  - Enables direct, low-latency database connectivity without Docker NAT / userland-proxy overhead.
+- **Dual-Worker Concurrency (`--workers 2`)**:
+  - Configured Uvicorn to run with 2 workers (`command: uvicorn app.main:app --host 0.0.0.0 --port 18080 --workers 2`) in `docker-compose.yml`.
+  - Enables dual-lane request processing: ensures high-priority emergency alerts (Stroke Alert, RTI) are never blocked or delayed by heavy background reporting/sync queries.
+- **Docker Compose Spec Modernization**:
+  - Removed obsolete `version: "3.9"` attribute to align with current Compose specification and eliminate CLI warnings.
+
 ## [1.1.1] - 2026-10-01
 
 ### Fixed
