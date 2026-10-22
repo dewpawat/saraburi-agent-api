@@ -13,7 +13,14 @@ DATABASE_URL = URL.create(
     query={"charset": "utf8mb4"}
 )
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_size=5,
+    max_overflow=5
+)
 
 async_session_factory = sessionmaker(
     bind=engine,

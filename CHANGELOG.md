@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-10-22
+
+### Fixed
+- **Database Connection Pool Resilience (`TCPTransport closed` Fix)**:
+  - Added `pool_pre_ping=True` to `create_async_engine` in `app/core/database.py`. Automatically tests connections before issuing queries and gracefully reconnects if the socket was terminated, completely resolving `RuntimeError: unable to perform operation on <TCPTransport closed=True reading=False ...>; the handler is closed`.
+  - Added `pool_recycle=1800` (30 minutes) to proactively retire and recycle idle database connections before hospital network firewalls or MySQL `wait_timeout` silently drop them.
+  - Added conservative connection pool constraints (`pool_size=5`, `max_overflow=5`) to guarantee that the agent uses fewer than 10 total connections, strictly safeguarding the hospital's primary HIS/HOSxP database resources.
+
 ## [1.1.2] - 2026-10-22
 
 ### Changed

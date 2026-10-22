@@ -156,7 +156,7 @@ Response ตัวอย่าง:
 ```json
 {
   "status": "running",
-  "version": "1.1.2"
+  "version": "1.1.3"
 }
 ```
 
