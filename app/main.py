@@ -22,8 +22,9 @@ app = FastAPI(
     title="Saraburi Agent API",
     description="Central Agent API for Saraburi Provincial Health Office",
     version=settings.APP_VERSION,
-    docs_url="/docs" if settings.APP_ENV != "production" else None,
-    redoc_url="/redoc" if settings.APP_ENV != "production" else None,
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
 
 # ---------------------------------------------------------

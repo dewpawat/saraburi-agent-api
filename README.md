@@ -102,13 +102,31 @@ DB_PASS=YOUR_DB_PASSWORD
 DB_NAME=YOUR_DB_NAME
 
 API_KEY=YOUR_API_KEY
-API_ALLOWED_IP1=203.157.115.86 #อันนี้เป็น ip จาก สสจ.
-API_ALLOWED_IP2=127.0.0.1 #อันนี้สำหรับทดสอบที่ รพ.
+# IP ที่อนุญาต คั่นด้วย comma: IP ของ สสจ. + 127.0.0.1 สำหรับทดสอบที่ รพ.
+API_ALLOWED_IPS=203.157.115.86,203.157.115.88,127.0.0.1
 
 HOSP_CODE=YOUR_HOSP_CODE
 HOSP_CODE9=YOUR_HOSP_CODE9
 HOSP_NAME=Test Hospital
 ```
+
+> **แนะนำ:** `DB_USER` ควรเป็น user ที่มีสิทธิ์ **SELECT อย่างเดียว** บนฐานข้อมูล HOSxP  
+> Agent อ่านข้อมูลอย่างเดียว ไม่มีการเขียนหรือแก้ไขข้อมูลของโรงพยาบาล
+
+#### ค่าใน .env ทั้งหมด
+
+| ค่า | จำเป็น | คำอธิบาย |
+|---|---|---|
+| `APP_NAME`, `APP_ENV`, `APP_PORT` | ✔ | `APP_ENV=production` จะปิด `/docs`, `/redoc`, `/openapi.json` |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME` | ✔ | ฐานข้อมูล HOSxP (MySQL / MariaDB) |
+| `API_KEY` | ✔ | key ที่ได้รับจาก สสจ. |
+| `API_ALLOWED_IPS` | ✔ * | IP ที่อนุญาต คั่นด้วย comma ใส่เป็นช่วง CIDR ได้ (เช่น `203.157.115.0/24`) |
+| `API_ALLOWED_IP1`, `API_ALLOWED_IP2` | | แบบเดิม (ก่อน v1.2.0) ยังใช้ได้ และรวมกับ `API_ALLOWED_IPS` อัตโนมัติ |
+| `HOSP_CODE`, `HOSP_CODE9`, `HOSP_NAME` | ✔ | รหัสหน่วยบริการ |
+| `TRUSTED_PROXIES` | | Reverse proxy ที่เชื่อ `X-Forwarded-For` ค่าเริ่มต้น `127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_RECYCLE` | | ค่าเริ่มต้น `5`, `5`, `1800` (ต่อ 1 worker, รัน 2 workers) |
+
+\* ต้องมีอย่างน้อยหนึ่งแบบ (`API_ALLOWED_IPS` หรือ `API_ALLOWED_IP1/IP2`) ถ้าใส่ IP ผิดรูปแบบ ระบบจะข้ามค่านั้นและเขียนเตือนใน log ไม่ทำให้โปรแกรมหยุด
 
 ---
 
@@ -122,7 +140,8 @@ docker compose up -d --build
 
 > **หมายเหตุสถาปัตยกรรม (Network & Concurrency v1.1.2+):**  
 > 1. **Network Mode:** ปรับใช้ `network_mode: "host"` เป็นมาตรฐาน เพื่อให้เชื่อมต่อกับฐานข้อมูล HOSxP/MySQL บนเครื่องแม่ได้โดยตรง ไม่ติดปัญหา Reverse DNS Lookup Timeout (ค้าง 2 นาที) บนเครื่องที่ไม่ได้ตั้ง `skip-name-resolve`  
-> 2. **Dual-Worker:** รัน Uvicorn ด้วย `--workers 2` เพื่อแยกเลนคำขอฉุกเฉิน (Stroke Alert, RTI Alert) ออกจากงานดึงข้อมูลรายงานทั่วไป ไม่ให้เกิดคิวบล็อกกัน
+> 2. **Dual-Worker:** รัน Uvicorn ด้วย `--workers 2` เพื่อแยกเลนคำขอฉุกเฉิน (Stroke Alert, RTI Alert) ออกจากงานดึงข้อมูลรายงานทั่วไป ไม่ให้เกิดคิวบล็อกกัน  
+> 3. **DB Connection Pool:** แต่ละ worker มี pool ของตัวเอง (ค่าเริ่มต้น 5 + overflow 5) รวม 2 workers ใช้ได้สูงสุด 20 connection ปรับได้ด้วย `DB_POOL_SIZE` / `DB_MAX_OVERFLOW`
 
 ตรวจสอบว่า container ของระบบทำงานอยู่หรือไม่
 ```bash
@@ -156,7 +175,7 @@ Response ตัวอย่าง:
 ```json
 {
   "status": "running",
-  "version": "1.1.3"
+  "version": "1.2.0"
 }
 ```
 
@@ -169,6 +188,46 @@ http://<SERVER_IP>:18080/docs
 > /docs ใช้สำหรับนักพัฒนาและทีม IT
 > ในระบบ Production แนะนำให้ปิดหรือจำกัดสิทธิ์การเข้าถึง
 > สามารถควบคุมได้ด้วยค่า APP_ENV
+
+#### Monitor Endpoints (v1.2.0+)
+
+| Endpoint | Method | ยืนยันตัวตน | ข้อมูลที่ได้ |
+|---|---|---|---|
+| `/api/v1/monitor/status` | GET | ไม่ต้อง | สถานะ + version |
+| `/api/v1/monitor/database` | GET | ไม่ต้อง (ถ้าส่ง header ผ่าน จะได้ข้อความ error เต็ม) | ผลทดสอบ `SELECT 1` |
+| `/api/v1/monitor/system-info` | **POST** | ต้อง | hostname, OS, เวลา, Python |
+| `/api/v1/monitor/performance` | **POST** | ต้อง | CPU / RAM / Disk % |
+| `/api/v1/monitor/full-check` | **POST** | ต้อง | รวมทั้งหมด |
+
+"ต้องยืนยันตัวตน" คือ ส่ง header `x-api-key` และ `x-hospcode` จาก IP ที่อยู่ใน `API_ALLOWED_IPS` (ไม่ต้องส่ง body)
+
+```bash
+curl -X POST http://127.0.0.1:18080/api/v1/monitor/system-info \
+  -H "x-api-key: YOUR_API_KEY" -H "x-hospcode: YOUR_HOSP_CODE"
+```
+
+`/monitor/database` ที่เรียกโดยไม่ส่ง header จะได้แค่ชนิด error + รหัส เช่น `OperationalError (2003)` เพื่อไม่เปิดเผย IP / ชื่อเครื่องฐานข้อมูล
+
+---
+
+### อัปเดตเวอร์ชัน (Update)
+
+```bash
+cd /opt/saraburi-agent-api
+git pull
+docker compose up -d --build
+```
+
+ตรวจสอบเวอร์ชันหลังอัปเดตที่ `/api/v1/monitor/status` และดู log ด้วย `docker compose logs -f`  
+`.env` เดิมใช้ต่อได้ทันที ไม่ต้องแก้ไข (ดูการเปลี่ยนแปลงแต่ละเวอร์ชันใน `CHANGELOG.md`)
+
+### แก้ปัญหาที่พบบ่อย (Troubleshooting)
+
+| อาการ | สาเหตุ / วิธีแก้ |
+|---|---|
+| `(2013, 'Lost connection to MySQL server during query')` หรือ `TCPTransport closed ... the handler is closed` | Connection ที่ค้างใน pool ถูก firewall / MySQL ตัดทิ้ง ตั้งแต่ v1.2.0 Agent ทดสอบ connection ก่อนใช้ทุกครั้งและเชื่อมต่อใหม่ให้อัตโนมัติ ถ้ายังใช้ v1.1.x ให้อัปเดต ใน log จะเห็นบรรทัด `DB connection dropped and will be reopened` ทุกครั้งที่มีการต่อใหม่ |
+| `IP x.x.x.x is not allowed` (403) | IP ที่แสดงคือ IP ที่ Agent เห็น ถ้าเป็น IP ของ สสจ. ให้เพิ่มใน `API_ALLOWED_IPS` ถ้าเป็น IP ของ reverse proxy ที่อยู่คนละเครื่องและเป็น IP สาธารณะ ให้เพิ่ม IP นั้นใน `TRUSTED_PROXIES` |
+| ชื่อไฟล์ log / เวลาไม่ตรง | ตั้งแต่ v1.2.0 container ใช้เวลา `Asia/Bangkok` ต้อง `docker compose up -d --build` ใหม่ |
 
 
 ### 5. การใช้งานร่วมกับ Web Server ที่มีอยู่แล้ว (Reverse Proxy)
@@ -243,6 +302,11 @@ server {
 ```bash
 systemctl reload nginx
 ```
+
+> **IP ของผู้เรียกเมื่อใช้ Reverse Proxy (v1.2.0+):**  
+> Agent จะอ่าน IP จริงจาก header `X-Forwarded-For` เฉพาะเมื่อ request มาจาก proxy ใน `TRUSTED_PROXIES`  
+> (ค่าเริ่มต้นคือเครื่องตัวเองและวง LAN ภายใน ซึ่งครอบคลุมกรณี Apache / Nginx อยู่เครื่องเดียวกันหรือใน LAN)  
+> request ที่เข้า port 18080 โดยตรงจะไม่สนใจ header นี้ เพื่อป้องกันการปลอม IP
 
 ### การเข้าใช้งานเมื่อใช้ Reverse Proxy
 เมื่อใช้ Reverse Proxy แล้ว

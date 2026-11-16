@@ -70,12 +70,11 @@ class HIEAnItem(BaseModel):
     ipname: Optional[str] = None
     prediag: Optional[str] = None
     dchdate: Optional[str] = None
-    dchtime: Optional[str] = None
     dname2: Optional[str] = None
     dcname: Optional[str] = None
     dsname: Optional[str] = None
-    
-class HIEProcedureOpdItem(BaseModel):
+
+class HIEProcedureIptItem(BaseModel):
     ref_date: Optional[str] = None
     oper_name: Optional[str] = None
     oper_qty: Optional[float] = None
@@ -207,7 +206,7 @@ class HIEAdmitItem(BaseModel):
     procedure_er: List[HIEProcedureErItem] = []
     procedure_opd: List[HIEProcedureOpdItem] = []
     list_an: List[HIEAnItem] = []
-    procedure_an: List[HIEProcedureOpdItem] = []
+    procedure_an: List[HIEProcedureIptItem] = []
 
 
 class HIEBaseResponse(BaseModel):

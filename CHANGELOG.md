@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-16
+
+### Fixed
+- **HIE Visit / Admit `procedure_opd` always empty**: `HIEProcedureOpdItem` was declared twice in `hie_model.py`; the second declaration (IPD fields) replaced the first, so every OPD procedure came back as `{ref_date: null, oper_name: null, ...}`. The IPD model is now `HIEProcedureIptItem` (used by `procedure_an`), and `procedure_opd` returns `opd_oper_code`, `opd_oper_name`, `price` again. Also removed a duplicated `dchtime` field in `HIEAnItem` (output unchanged).
+- **`TCPTransport closed ... the handler is closed` DB errors**: v1.1.3's `pool_pre_ping` only reconnects on errors the driver reports as a disconnect. When a pooled connection's socket has already been closed, uvloop raises a plain `RuntimeError` that `pool_pre_ping` lets through, so one request per dead connection failed (seen at hospcode 10812 on v1.1.3, ~25% of checks). `app/core/database.py` now pings every connection on checkout and treats *any* ping failure as a disconnect, so SQLAlchemy discards it and reconnects before the query runs. Reproduced and verified in Docker: v1.1.3 fails the first request, v1.2.0 succeeds.
+- **Time zone**: container now runs in `Asia/Bangkok` (`TZ` + `tzdata` in `Dockerfile`). Before, daily access-log files rolled over at 07:00 Thai time and `/monitor` times were UTC.
+
+### Security
+- **Monitor endpoints**: `GET /monitor/status` and `GET /monitor/database` stay public. `/monitor/system-info`, `/monitor/performance`, `/monitor/full-check` are now **POST** and require `x-api-key` + `x-hospcode` from an allowed IP (no body needed). Calling them with GET returns 405.
+- **`/monitor/database` error detail**: callers that pass the API-key check (same headers as above) still get the full DB error. Anyone else gets only the error type and code, e.g. `OperationalError (2003)`, so DB host/IP is not exposed.
+- **IP allowlist could be bypassed with a fake `X-Forwarded-For`**: the header is now trusted only when the request comes from a proxy listed in `TRUSTED_PROXIES` (default: `127.0.0.1`, `::1` and private LAN ranges), and the right-most untrusted hop is used. Requests that reach the agent directly ignore the header.
+- Caller IP is checked before the API key, and the key is compared in constant time.
+- `/openapi.json` is now disabled together with `/docs` and `/redoc` when `APP_ENV=production` (case-insensitive).
+
+### Added
+- `API_ALLOWED_IPS`: comma-separated list of allowed IPs or CIDR ranges. `API_ALLOWED_IP1` / `API_ALLOWED_IP2` still work and are merged, so existing `.env` files need no change. Invalid entries and inline `#` comments are ignored with a log warning instead of breaking startup.
+- `TRUSTED_PROXIES`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_RECYCLE` (optional; defaults keep v1.1.3 behaviour: pool 5 + overflow 5 **per worker**, recycle 1800 s).
+- A warning line in `docker compose logs` each time a DB connection is dropped and reopened (`saraburi_agent.database: DB connection dropped ...`), to measure how often a hospital's network or DB cuts connections.
+
+### Changed
+- `requirements.txt` pins every package to the set tested for this release (FastAPI 0.163.1, SQLAlchemy 2.1.8, aiomysql 0.3.2, uvicorn 0.54.0, ...), so every hospital builds the same versions.
+- `Dockerfile`: removed `build-essential`, `default-libmysqlclient-dev`, `gcc` (not needed: the driver is pure Python) and the unused `.env.example` copy; default `CMD` now matches `docker-compose.yml` (`--workers 2`).
+- Unknown keys in `.env` are ignored instead of failing startup; settings use the pydantic v2 `model_config`.
+- Note on 1.1.3's pool wording: limits are per worker, so 2 workers can open up to 20 connections in total.
+
+### Removed
+- `app/utils/test_calc.py` (leftover test file) and the obsolete `version:` key in `.devcontainer/docker-compose.yml`.
+
 ## [1.1.3] - 2026-10-22
 
 ### Fixed
