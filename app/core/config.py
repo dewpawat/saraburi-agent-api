@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     APP_NAME: str
     APP_ENV: str
     APP_PORT: int
-    APP_VERSION: str = "1.3.0"
+    APP_VERSION: str = "1.3.1"
 
     API_KEY: str
     # Allowed caller IPs. API_ALLOWED_IPS takes a comma-separated list (IPs or CIDR, e.g.

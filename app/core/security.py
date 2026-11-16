@@ -71,8 +71,11 @@ def get_client_ip(request: Request) -> str:
         for hop in reversed(hops):
             if not _in_networks(hop, TRUSTED_PROXY_NETWORKS):
                 return hop
+        # Every hop is a trusted/private address (e.g. traffic NAT-ed to a LAN gateway
+        # before the proxy). Use the right-most hop, the one our nearest proxy added.
+        # The left-most hop is whatever the caller typed and must never be trusted.
         if hops:
-            return hops[0]
+            return hops[-1]
 
     return peer or "unknown"
 

@@ -204,7 +204,7 @@ Response ตัวอย่าง:
 ```json
 {
   "status": "running",
-  "version": "1.3.0"
+  "version": "1.3.1"
 }
 ```
 
@@ -259,6 +259,8 @@ docker compose up -d --build
 | `(2013, 'Lost connection to MySQL server during query')` หรือ `TCPTransport closed ... the handler is closed` | Connection ที่ค้างใน pool ถูก firewall / MySQL ตัดทิ้ง ตั้งแต่ v1.2.0 Agent ทดสอบ connection ก่อนใช้ทุกครั้งและเชื่อมต่อใหม่ให้อัตโนมัติ ถ้ายังใช้ v1.1.x ให้อัปเดต ใน log จะเห็นบรรทัด `DB connection dropped and will be reopened` ทุกครั้งที่มีการต่อใหม่ |
 | `IP x.x.x.x is not allowed` (403) | IP ที่แสดงคือ IP ที่ Agent เห็น ถ้าเป็น IP ของ สสจ. ให้เพิ่มใน `API_ALLOWED_IPS` ถ้าเป็น IP ของ reverse proxy ที่อยู่คนละเครื่องและเป็น IP สาธารณะ ให้เพิ่ม IP นั้นใน `TRUSTED_PROXIES` |
 | ชื่อไฟล์ log / เวลาไม่ตรง | ตั้งแต่ v1.2.0 container ใช้เวลา `Asia/Bangkok` ต้อง `docker compose up -d --build` ใหม่ |
+| ควรใส่ IP ไหนใน `API_ALLOWED_IPS` | ใส่เฉพาะ IP ของผู้ที่เรียกจริง (เช่น IP ของ สสจ.) **อย่าใส่ IP ของ gateway / router ที่ทำ NAT** (เช่น `192.168.x.1`) เพราะทุกคำขอที่ผ่าน gateway นั้น รวมถึงจากอินเทอร์เน็ตผ่าน reverse proxy จะผ่านการตรวจ IP ทั้งหมด เหลือแค่ API key ป้องกัน ดู IP ของผู้เรียกจริงได้ที่ `logs/access_YYYY-MM-DD.log` |
+| ติดตั้งแบบเก่าด้วยไฟล์ `.tar` (ไม่มี `.git` ในโฟลเดอร์) | อัปเดตด้วยการ `git clone` ลงโฟลเดอร์ใหม่ คัดลอก `.env` เดิมไป แล้ว `docker compose up -d --build` ในโฟลเดอร์ใหม่ (เก็บโฟลเดอร์เดิมไว้ rollback) |
 
 
 ### 5. การใช้งานร่วมกับ Web Server ที่มีอยู่แล้ว (Reverse Proxy)

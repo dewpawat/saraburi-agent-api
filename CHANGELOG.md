@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-11-16
+
+### Security
+- **Fake `X-Forwarded-For` accepted when every hop is a LAN address** (introduced in 1.2.0): if all addresses in the header were trusted / private (e.g. external traffic NAT-ed to the LAN gateway before Apache), the agent used the **left-most** address, which the caller can type. It now uses the **right-most** one, added by the nearest proxy. Found on the สสจ. agent (192.168.6.89): a request through `saraburiapi.moph.go.th/agent/` with `X-Forwarded-For: 192.168.6.86` was logged as 192.168.6.86. Callers that reach the agent directly, and callers behind a proxy with a public IP, were not affected.
+
+### Notes
+- Do not put the LAN gateway / NAT address (e.g. `192.168.6.1`) in `API_ALLOWED_IPS` / `API_ALLOWED_IP2`: every request that comes through that gateway, including from the internet via a reverse proxy, then passes the IP check and only the API key protects the agent.
+
 ## [1.3.0] - 2026-11-16
 
 Hospitals can upgrade straight from 1.1.x to 1.3.0 (includes everything in 1.2.0). Existing MySQL `.env` files work unchanged.
