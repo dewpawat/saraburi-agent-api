@@ -2,6 +2,8 @@ from fastapi import APIRouter, Request, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
+from app.core.sql import sql_for
+
 from app.api.v1.deps.header import get_header_security
 from app.api.v1.models.stroke_model import StrokeIPDRequest, StrokeIPDResponse, StrokeOPDRequest, StrokeOPDResponse
 from app.api.v1.models.security_model import HeaderSecurity
@@ -21,7 +23,7 @@ async def stroke_ipd(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("stroke.ipd", """
         SELECT 
             o.hcode AS hospcode,
             o.vstdate,
@@ -140,7 +142,7 @@ async def stroke_opd(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("stroke.opd", """
         SELECT 
             o.hcode AS hospcode,
             o.vstdate,

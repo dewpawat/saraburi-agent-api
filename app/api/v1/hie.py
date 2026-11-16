@@ -3,6 +3,8 @@ from fastapi import APIRouter, Request, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
+from app.core.sql import sql_for
+
 from app.api.v1.models.hie_model import (
     HIEPatientRequest, HIEServiceRequest, HIEVisitRequest, HIEAdmitRequest,
     HIEPatientResponse, HIEServiceResponse, HIEVisitResponse, HIEAdmitResponse,
@@ -11,6 +13,7 @@ from app.api.v1.deps.header import get_header_security
 from app.api.v1.models.security_model import HeaderSecurity
 from app.core.security import api_security
 from app.core.database import get_db
+from app.core.config import settings
 from app.utils.formatters import safe_str, safe_date_iso, safe_float, safe_get
 
 logger = logging.getLogger("saraburi_agent.hie")
@@ -24,6 +27,13 @@ async def safe_fetch_all(db: AsyncSession, sql, params: dict, context: str = "")
     instead of failing the entire endpoint request.
     """
     try:
+        if settings.is_postgresql:
+            # PostgreSQL aborts the whole transaction after any error, so later queries of the
+            # same request would all fail. A savepoint limits the rollback to this query.
+            # (MySQL keeps going after an error; its path below is unchanged.)
+            async with db.begin_nested():
+                rows = await db.execute(sql, params)
+                return rows.mappings().all()
         rows = await db.execute(sql, params)
         return rows.mappings().all()
     except Exception as e:
@@ -46,7 +56,7 @@ async def hie_patient(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("hie.patient", """
         SELECT p.cid, p.hn, p.pname, p.fname, p.lname, p.birthday, p.hometel, p.sex, 
         CONCAT(p.addrpart,' ',p.road) AS address, p.moopart AS moo, t3.name AS tambon, t2.name AS ampur, t1.name AS changwat
         FROM patient p 
@@ -104,7 +114,7 @@ async def hie_service(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("hie.service", """
         SELECT p.hn, o.vn, o.an, o.vstdate, o.vsttime, i.tname, pt.name, o.pttypeno, i.name AS iname, i.code3, v.paid_money, d.name AS dname 
         FROM patient p 
         LEFT JOIN ovst o  ON p.hn = o.hn
@@ -169,7 +179,7 @@ async def hie_visit(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("hie.visit.main", """
         SELECT p.hn AS hn_0 ,p.cid ,CONCAT(p.pname ,' ', p.fname ,' ', p.lname) AS nm, p.birthday, (YEAR(NOW()) - YEAR(p.birthday)) AS birthday_year, 
             (SELECT hospitalname FROM opdconfig LIMIT 0,1) AS so, 
             o.vn AS vn_0, o.an AS an_0, o.vstdate AS vstdate_0, o.vsttime AS vsttime_0, 
@@ -200,7 +210,7 @@ async def hie_visit(
         }
     
     # 1) Diagnosis
-    sql_diag = text("""
+    sql_diag = sql_for("hie.visit.diag", """
         SELECT 
             i.code3, i.tname, i.name AS iname
         FROM ovst o
@@ -218,7 +228,7 @@ async def hie_visit(
         })
 
     # 2) Drugs (supports s_drugitems or drugitems)
-    sql_drug = text("""
+    sql_drug = sql_for("hie.visit.drug_s", """
         SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
         FROM opitemrece a 
         INNER JOIN s_drugitems b ON a.icode = b.icode 
@@ -228,7 +238,7 @@ async def hie_visit(
     result_drug = await safe_fetch_all(db, sql_drug, {"vn": body.vn}, "visit_drugs_s_drugitems")
     if not result_drug:
         # Fallback to standard drugitems table if s_drugitems view doesn't exist
-        sql_drug_alt = text("""
+        sql_drug_alt = sql_for("hie.visit.drug", """
             SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
             FROM opitemrece a 
             INNER JOIN drugitems b ON a.icode = b.icode 
@@ -248,7 +258,7 @@ async def hie_visit(
         })
 
     # 3) Lab
-    sql_lab = text("""
+    sql_lab = sql_for("hie.visit.lab", """
         SELECT l.lab_items_code, i.lab_items_name, i.lab_items_normal_value,
         if(i.lab_items_name NOT LIKE '%hiv%' AND i.lab_items_name NOT LIKE '%interpretation%',l.lab_order_result,'ปกปิด') AS lab_order_result 
         FROM lab_head h 
@@ -268,7 +278,7 @@ async def hie_visit(
         })
 
     # 4) Allergy
-    sql_allergy = text("""
+    sql_allergy = sql_for("hie.visit.allergy", """
         SELECT oa.agent, oa.symptom, oa.report_date, oa.department
         FROM opd_allergy oa
         WHERE oa.hn = :hn
@@ -284,7 +294,7 @@ async def hie_visit(
         })
 
     # 5) ER Procedure
-    sql_er_oper = text("""
+    sql_er_oper = sql_for("hie.visit.er_oper", """
         SELECT ero.*, eoc.name AS er_oper_name, d.name AS doctor_name
         FROM er_regist_oper ero
         LEFT OUTER JOIN er_oper_code eoc ON eoc.er_oper_code = ero.er_oper_code
@@ -303,7 +313,7 @@ async def hie_visit(
         })
 
     # 6) OPD Procedure
-    sql_opd_oper = text("""
+    sql_opd_oper = sql_for("hie.visit.opd_oper", """
         SELECT dot.*, eoc.name AS opd_oper_name, d.name AS doctor_name
         FROM doctor_operation dot
         LEFT OUTER JOIN er_oper_code eoc ON eoc.er_oper_code=dot.er_oper_code
@@ -391,7 +401,7 @@ async def hie_admit(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("hie.admit.main", """
         SELECT p.hn AS hn_0 ,p.cid ,CONCAT(p.pname ,' ', p.fname ,' ', p.lname) AS nm, p.birthday, (YEAR(NOW()) - YEAR(p.birthday)) AS birthday_year, 
             (SELECT hospitalname FROM opdconfig LIMIT 0,1) AS so, 
             o.vn AS vn_0, o.an AS an_0, o.vstdate AS vstdate_0, o.vsttime AS vsttime_0, 
@@ -422,7 +432,7 @@ async def hie_admit(
         }
     
     # 1) Diagnosis
-    sql_diag = text("""
+    sql_diag = sql_for("hie.admit.diag", """
         SELECT o.vn ,o.vstdate ,o.vsttime ,i.tname , pt.name ,o.pttypeno , i.name AS iname ,i.code3 , v.paid_money , d.name AS dname 
         FROM ovst o 
         INNER JOIN ovstdiag ov ON o.vn = ov.vn 
@@ -443,7 +453,7 @@ async def hie_admit(
         })
 
     # 2) Drugs (supports s_drugitems or drugitems)
-    sql_drug = text("""
+    sql_drug = sql_for("hie.admit.drug_s", """
         SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
         FROM opitemrece a 
         INNER JOIN s_drugitems b ON a.icode = b.icode 
@@ -452,7 +462,7 @@ async def hie_admit(
     """)
     result_drug = await safe_fetch_all(db, sql_drug, {"vn": body.vn, "an": body.an}, "admit_drugs_s_drugitems")
     if not result_drug:
-        sql_drug_alt = text("""
+        sql_drug_alt = sql_for("hie.admit.drug", """
             SELECT b.name, b.strength, a.qty, a.sum_price, d.shortlist 
             FROM opitemrece a 
             INNER JOIN drugitems b ON a.icode = b.icode 
@@ -472,7 +482,7 @@ async def hie_admit(
         })
 
     # 3) Lab
-    sql_lab = text("""
+    sql_lab = sql_for("hie.admit.lab", """
         SELECT l.lab_items_code, i.lab_items_name, i.lab_items_normal_value,
         if(i.lab_items_name NOT LIKE '%hiv%' AND i.lab_items_name NOT LIKE '%interpretation%',l.lab_order_result,'ปกปิด') AS lab_order_result 
         FROM lab_head h 
@@ -492,7 +502,7 @@ async def hie_admit(
         })
 
     # 4) Allergy
-    sql_allergy = text("""
+    sql_allergy = sql_for("hie.admit.allergy", """
         SELECT oa.agent, oa.symptom, oa.report_date, oa.department
         FROM opd_allergy oa
         WHERE oa.hn = :hn
@@ -508,7 +518,7 @@ async def hie_admit(
         })
 
     # 5) ER Procedure
-    sql_er_oper = text("""
+    sql_er_oper = sql_for("hie.admit.er_oper", """
         SELECT ero.*, eoc.name AS er_oper_name, d.name AS doctor_name
         FROM er_regist_oper ero
         LEFT OUTER JOIN er_oper_code eoc ON eoc.er_oper_code = ero.er_oper_code
@@ -527,7 +537,7 @@ async def hie_admit(
         })
 
     # 6) OPD Procedure
-    sql_opd_oper = text("""
+    sql_opd_oper = sql_for("hie.admit.opd_oper", """
         SELECT dot.*, eoc.name AS opd_oper_name, d.name AS doctor_name
         FROM doctor_operation dot
         LEFT OUTER JOIN er_oper_code eoc ON eoc.er_oper_code=dot.er_oper_code
@@ -544,7 +554,7 @@ async def hie_admit(
         })
 
     # 7) AN
-    sql_an = text("""
+    sql_an = sql_for("hie.admit.an", """
         SELECT *, d1.name AS dname1, d2.name AS dname2, pt.name AS pname, w.name AS wname, ip.name AS ipname, dc.name AS dcname, ds.name AS dsname  
         FROM an_stat a 
         INNER JOIN ipt i ON i.an = a.an
@@ -578,7 +588,7 @@ async def hie_admit(
         })
 
     # 8) IPT Procedure
-    sql_ipt_oper = text("""
+    sql_ipt_oper = sql_for("hie.admit.ipt_oper", """
         SELECT ino.*, ioc.name AS oper_name, d.name AS doctor_name
         FROM ipt_nurse_oper ino
         LEFT OUTER JOIN ipt_oper_code ioc ON ioc.ipt_oper_code = ino.ipt_oper_code

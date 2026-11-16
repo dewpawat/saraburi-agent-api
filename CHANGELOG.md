@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-11-16
+
+Hospitals can upgrade straight from 1.1.x to 1.3.0 (includes everything in 1.2.0). Existing MySQL `.env` files work unchanged.
+
+### Added
+- **PostgreSQL support** for hospitals running HOSxP on PostgreSQL (e.g. 10695): set `DB_TYPE=postgresql` in `.env`. Without `DB_TYPE` (every `.env` before 1.3.0) the agent uses MySQL / MariaDB exactly as before. Accepted values: `mysql`, `mariadb`, `postgresql`, `postgres`, `pgsql`; any other value stops startup with a clear message.
+  - Driver `asyncpg`. Every PostgreSQL session is read-only (`default_transaction_read_only=on`) and has a 10 s connect timeout, like the MySQL driver.
+  - All HIE / Stroke / RTI queries have PostgreSQL versions in `app/sql/postgresql.py`. They return the same fields and the same text formats as MySQL (time as `8:05:09`, upper-case RTI keys, MySQL's NULL ordering, NULL-safe address concatenation, HIV / interpretation lab masking case-insensitive).
+  - On PostgreSQL, optional HIE sub-queries run inside a savepoint, so a missing table (e.g. `s_drugitems`) only skips that part, as on MySQL. Without it PostgreSQL would abort every following query of the request.
+- `DB_PORT` is optional: defaults to 3306 (mysql) or 5432 (postgresql).
+- `/monitor/system-info` and `/monitor/full-check` now include `database_type` (`mysql` / `postgresql`) and `database_version` (read with a 3 s limit; `null` if the DB does not answer). Fields are added only, nothing removed.
+
+### Changed
+- MySQL queries are untouched: endpoints now call `sql_for("<key>", """<same MySQL SQL>""")`, which returns the original MySQL text unless `DB_TYPE=postgresql`. Checked that all 24 MySQL SQL strings are byte-for-byte identical to 1.2.0.
+- `/monitor/database` and `/monitor/full-check`: when an error has no message (e.g. a connect timeout) the error type is returned instead of an empty string.
+
+### Tested
+- Mock HOSxP schema with identical data on MariaDB 10.6, PostgreSQL 16 and PostgreSQL 9.6; all 15 endpoint cases compared as JSON:
+  - 1.2.0 on MySQL vs 1.3.0 on MySQL: identical (only difference is the order of lab items with the same `order_date`, which the original query does not sort and MySQL returns in any order).
+  - 1.3.0 on MySQL vs 1.3.0 on PostgreSQL 16 / 9.6: identical (drug list order inside `drug_name` ignored for the same reason).
+  - PostgreSQL without `s_drugitems`, DB restart (automatic reconnect), DB down, monitor auth rules.
+
 ## [1.2.0] - 2026-11-16
 
 ### Fixed

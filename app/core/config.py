@@ -1,4 +1,17 @@
+from typing import Optional
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# DB_TYPE values accepted in .env -> canonical name
+_DB_TYPE_ALIASES = {
+    "mysql": "mysql",
+    "mariadb": "mysql",
+    "postgresql": "postgresql",
+    "postgres": "postgresql",
+    "pgsql": "postgresql",
+}
+_DEFAULT_DB_PORT = {"mysql": 3306, "postgresql": 5432}
 
 
 class Settings(BaseSettings):
@@ -8,7 +21,7 @@ class Settings(BaseSettings):
     APP_NAME: str
     APP_ENV: str
     APP_PORT: int
-    APP_VERSION: str = "1.2.0"
+    APP_VERSION: str = "1.3.0"
 
     API_KEY: str
     # Allowed caller IPs. API_ALLOWED_IPS takes a comma-separated list (IPs or CIDR, e.g.
@@ -25,8 +38,12 @@ class Settings(BaseSettings):
     HOSP_CODE9: str
     HOSP_NAME: str
 
+    # Database of the hospital HIS: "mysql" (default, also MariaDB) or "postgresql".
+    # .env files from before v1.3.0 have no DB_TYPE and keep using MySQL.
+    DB_TYPE: str = "mysql"
     DB_HOST: str
-    DB_PORT: int
+    # Optional since v1.3.0: defaults to 3306 (mysql) / 5432 (postgresql)
+    DB_PORT: Optional[int] = None
     DB_USER: str
     DB_PASS: str
     DB_NAME: str
@@ -35,6 +52,31 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 5
     DB_POOL_RECYCLE: int = 1800
+
+    @field_validator("DB_TYPE", mode="before")
+    @classmethod
+    def _normalize_db_type(cls, value):
+        raw = "" if value is None else str(value).split("#", 1)[0].strip().lower()
+        if raw == "":
+            return "mysql"
+        if raw not in _DB_TYPE_ALIASES:
+            raise ValueError(f"DB_TYPE '{value}' is not supported; use 'mysql' or 'postgresql'")
+        return _DB_TYPE_ALIASES[raw]
+
+    @field_validator("DB_PORT", mode="before")
+    @classmethod
+    def _blank_port_is_default(cls, value):
+        if value is None or (isinstance(value, str) and value.split("#", 1)[0].strip() == ""):
+            return None
+        return value
+
+    @property
+    def is_postgresql(self) -> bool:
+        return self.DB_TYPE == "postgresql"
+
+    @property
+    def db_port(self) -> int:
+        return self.DB_PORT if self.DB_PORT is not None else _DEFAULT_DB_PORT[self.DB_TYPE]
 
     @property
     def docs_enabled(self) -> bool:

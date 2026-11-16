@@ -9,19 +9,42 @@ from app.core.config import settings
 
 logger = logging.getLogger("saraburi_agent.database")
 
-DATABASE_URL = URL.create(
-    drivername="mysql+aiomysql",
-    username=settings.DB_USER,
-    password=settings.DB_PASS,
-    host=settings.DB_HOST,
-    port=settings.DB_PORT,
-    database=settings.DB_NAME,
-    query={"charset": "utf8mb4"}
-)
+if settings.is_postgresql:
+    DATABASE_URL = URL.create(
+        drivername="postgresql+asyncpg",
+        username=settings.DB_USER,
+        password=settings.DB_PASS,
+        host=settings.DB_HOST,
+        port=settings.db_port,
+        database=settings.DB_NAME,
+    )
+    CONNECT_ARGS = {
+        # asyncpg waits 60 s by default; use the same 10 s limit as the MySQL driver
+        "timeout": 10,
+        "server_settings": {
+            "application_name": "saraburi-agent-api",
+            # The agent only reads: make every transaction read-only on the server side,
+            # so even a DB user with write rights cannot change hospital data through it.
+            "default_transaction_read_only": "on",
+        }
+    }
+else:
+    # MySQL / MariaDB: same settings as v1.2.0
+    DATABASE_URL = URL.create(
+        drivername="mysql+aiomysql",
+        username=settings.DB_USER,
+        password=settings.DB_PASS,
+        host=settings.DB_HOST,
+        port=settings.db_port,
+        database=settings.DB_NAME,
+        query={"charset": "utf8mb4"}
+    )
+    CONNECT_ARGS = {}
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
+    connect_args=CONNECT_ARGS,
     # Health check is done by the "checkout" listener below instead of pool_pre_ping.
     # pool_pre_ping only reconnects on errors the driver reports as a disconnect; under
     # uvloop a socket the server already closed raises a plain RuntimeError

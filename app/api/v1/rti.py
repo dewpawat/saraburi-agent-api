@@ -2,6 +2,8 @@ from fastapi import APIRouter, Request, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
+from app.core.sql import sql_for
+
 from app.core.config import settings
 from app.api.v1.models.rti_model import (
     RTIAccidentRequest, RTIAccidentPlaceRequest,
@@ -34,7 +36,7 @@ async def rti_accident(
     hospcode9 = settings.HOSP_CODE9
     vstdate = body.vstdate
 
-    sql = text("""
+    sql = sql_for("rti.accident", """
         SELECT
             :hospcode AS HOSPCODE,
             IF(ps.person_id IS NULL, o.hn, LPAD(ps.person_id, 6, '0')) AS PID,
@@ -156,7 +158,7 @@ async def rti_place(
 ):
     await api_security(request, body.hospcode)
 
-    sql = text("""
+    sql = sql_for("rti.place", """
         SELECT ap.stdcode_ok AS accident_stdcode, ap.accident_place_type_name, ap.latitude, ap.longitude, ap.tamboncode, ap.ampurcode, ap.road, ap.export_code, ap.accident_place_type_id AS accident_id
         FROM accident_place_type ap
         WHERE (ap.latitude IS NOT NULL AND longitude IS NOT NULL) AND (ap.latitude != '' AND longitude != '')

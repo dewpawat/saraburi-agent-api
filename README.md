@@ -21,7 +21,7 @@ Saraburi Agent API เป็นระบบ API กลาง (Central Agent API)
 - FastAPI
 - Uvicorn (ASGI Server - Dual Workers)
 - Docker / Docker Compose (Host Network Mode)
-- MySQL / MariaDB
+- MySQL / MariaDB (ค่าเริ่มต้น) หรือ PostgreSQL (v1.3.0+ ตั้งค่า `DB_TYPE=postgresql`)
 - REST API (JSON)
 
 ---
@@ -113,12 +113,41 @@ HOSP_NAME=Test Hospital
 > **แนะนำ:** `DB_USER` ควรเป็น user ที่มีสิทธิ์ **SELECT อย่างเดียว** บนฐานข้อมูล HOSxP  
 > Agent อ่านข้อมูลอย่างเดียว ไม่มีการเขียนหรือแก้ไขข้อมูลของโรงพยาบาล
 
+#### โรงพยาบาลที่ใช้ HOSxP บน PostgreSQL (v1.3.0+)
+
+เพิ่ม `DB_TYPE=postgresql` และใส่ค่าการเชื่อมต่อของ PostgreSQL (ไม่ใส่ `DB_PORT` จะใช้ `5432`)
+
+```env
+DB_TYPE=postgresql
+DB_HOST=YOUR_DB_HOST
+DB_PORT=5432
+DB_USER=YOUR_DB_USER
+DB_PASS=YOUR_DB_PASSWORD
+DB_NAME=YOUR_DB_NAME
+```
+
+ตัวอย่างการสร้าง user อ่านอย่างเดียวบน PostgreSQL (รันด้วยสิทธิ์ผู้ดูแลฐานข้อมูล)
+
+```sql
+CREATE ROLE agent_read LOGIN PASSWORD 'รหัสผ่าน';
+GRANT CONNECT ON DATABASE ชื่อฐานข้อมูล TO agent_read;
+GRANT USAGE ON SCHEMA public TO agent_read;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_read;
+```
+
+> - ต้องอนุญาต IP ของเครื่อง Agent ใน `pg_hba.conf` ของเครื่องฐานข้อมูล  
+> - Agent เปิด session แบบ **read-only** เสมอ (`default_transaction_read_only=on`) แม้ user จะมีสิทธิ์เขียนก็แก้ไขข้อมูลไม่ได้  
+> - รองรับ PostgreSQL 9.6 ขึ้นไป (ทดสอบกับ 9.6 และ 16)  
+> - `.env` ของโรงพยาบาลที่ใช้ MySQL **ไม่ต้องแก้อะไร** ไม่มี `DB_TYPE` = ใช้ MySQL เหมือนเดิม
+
 #### ค่าใน .env ทั้งหมด
 
 | ค่า | จำเป็น | คำอธิบาย |
 |---|---|---|
 | `APP_NAME`, `APP_ENV`, `APP_PORT` | ✔ | `APP_ENV=production` จะปิด `/docs`, `/redoc`, `/openapi.json` |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME` | ✔ | ฐานข้อมูล HOSxP (MySQL / MariaDB) |
+| `DB_TYPE` | | ชนิดฐานข้อมูล `mysql` (ค่าเริ่มต้น ใช้กับ MariaDB ด้วย) หรือ `postgresql` (v1.3.0+) |
+| `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME` | ✔ | ฐานข้อมูล HOSxP |
+| `DB_PORT` | | ไม่ใส่ = `3306` (mysql) / `5432` (postgresql) |
 | `API_KEY` | ✔ | key ที่ได้รับจาก สสจ. |
 | `API_ALLOWED_IPS` | ✔ * | IP ที่อนุญาต คั่นด้วย comma ใส่เป็นช่วง CIDR ได้ (เช่น `203.157.115.0/24`) |
 | `API_ALLOWED_IP1`, `API_ALLOWED_IP2` | | แบบเดิม (ก่อน v1.2.0) ยังใช้ได้ และรวมกับ `API_ALLOWED_IPS` อัตโนมัติ |
@@ -175,7 +204,7 @@ Response ตัวอย่าง:
 ```json
 {
   "status": "running",
-  "version": "1.2.0"
+  "version": "1.3.0"
 }
 ```
 
@@ -195,9 +224,11 @@ http://<SERVER_IP>:18080/docs
 |---|---|---|---|
 | `/api/v1/monitor/status` | GET | ไม่ต้อง | สถานะ + version |
 | `/api/v1/monitor/database` | GET | ไม่ต้อง (ถ้าส่ง header ผ่าน จะได้ข้อความ error เต็ม) | ผลทดสอบ `SELECT 1` |
-| `/api/v1/monitor/system-info` | **POST** | ต้อง | hostname, OS, เวลา, Python |
+| `/api/v1/monitor/system-info` | **POST** | ต้อง | hostname, OS, เวลา, Python, `database_type`, `database_version` (v1.3.0+) |
 | `/api/v1/monitor/performance` | **POST** | ต้อง | CPU / RAM / Disk % |
-| `/api/v1/monitor/full-check` | **POST** | ต้อง | รวมทั้งหมด |
+| `/api/v1/monitor/full-check` | **POST** | ต้อง | รวมทั้งหมด (รวม `database_type`, `database_version` ตั้งแต่ v1.3.0) |
+
+`database_type` บอกว่า Agent เชื่อมฐานข้อมูลชนิดไหน (`mysql` หรือ `postgresql`) และ `database_version` คือเวอร์ชันของเครื่องฐานข้อมูล เช่น `10.6.21-MariaDB` หรือ `16.4`
 
 "ต้องยืนยันตัวตน" คือ ส่ง header `x-api-key` และ `x-hospcode` จาก IP ที่อยู่ใน `API_ALLOWED_IPS` (ไม่ต้องส่ง body)
 

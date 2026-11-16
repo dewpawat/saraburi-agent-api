@@ -9,6 +9,11 @@ def safe_str(val: Any, default: Optional[str] = None) -> Optional[str]:
     """
     if val is None:
         return default
+    if isinstance(val, time):
+        # Only PostgreSQL returns TIME columns as datetime.time; MySQL (aiomysql) returns
+        # timedelta, shown as "8:30:00". Use the same text so every hospital sends the same format.
+        s = f"{val.hour}:{val.minute:02d}:{val.second:02d}"
+        return s + f".{val.microsecond:06d}" if val.microsecond else s
     s = str(val).strip()
     if s == "" or s.lower() in ("none", "null"):
         return default

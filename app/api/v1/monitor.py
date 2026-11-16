@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.core.security import api_security_header, is_authorized
 
+import asyncio
 import socket
 import platform
 import psutil
@@ -25,12 +26,29 @@ def _short_db_error(exc: Exception) -> str:
     return f"{type(orig).__name__} ({code})" if code is not None else type(orig).__name__
 
 
+_DB_VERSION_SQL = {
+    "mysql": "SELECT VERSION()",           # e.g. "10.6.21-MariaDB" / "8.0.36"
+    "postgresql": "SHOW server_version",   # e.g. "16.4 (Debian 16.4-1.pgdg120+2)"
+}
+
+
+async def _db_version(db: AsyncSession):
+    """Server version of the hospital DB, or None if it cannot be read within 3 seconds."""
+    try:
+        result = await asyncio.wait_for(db.execute(text(_DB_VERSION_SQL[settings.DB_TYPE])), timeout=3)
+        value = result.scalar()
+        return str(value) if value is not None else None
+    except Exception:
+        return None
+
+
 async def _check_db(db: AsyncSession, full_error: bool):
     try:
         await db.execute(text("SELECT 1"))
         return True, None
     except Exception as e:
-        return False, (str(e) if full_error else _short_db_error(e))
+        # some errors (e.g. connect timeout) have an empty message: show the type instead
+        return False, ((str(e) or type(e).__name__) if full_error else _short_db_error(e))
 
 
 # ---------------------------------------------------------
@@ -66,6 +84,7 @@ async def database_status(request: Request, db: AsyncSession = Depends(get_db)):
 async def system_info(
     request: Request,
     headers: HeaderSecurity = Depends(get_header_security),
+    db: AsyncSession = Depends(get_db),
 ):
     await api_security_header(request)
     return {
@@ -74,6 +93,9 @@ async def system_info(
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "python": platform.python_version(),
         "version": settings.APP_VERSION,
+        # v1.3.0+: which HIS database this agent reads ("mysql" or "postgresql")
+        "database_type": settings.DB_TYPE,
+        "database_version": await _db_version(db),
     }
 
 
@@ -110,6 +132,8 @@ async def full_check(
         "version": settings.APP_VERSION,
         "database": db_ok,
         "database_error": db_error,
+        "database_type": settings.DB_TYPE,
+        "database_version": await _db_version(db) if db_ok else None,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "performance": {
             "cpu": psutil.cpu_percent(interval=0.1),
